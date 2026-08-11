@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ! -t 0 && -z ${EDWIN_EDITOR_TEST_PTY:-} ]]; then
+  command -v script >/dev/null 2>&1 || {
+    printf 'FAIL: a PTY or the script command is required\n' >&2
+    exit 1
+  }
+  export EDWIN_EDITOR_TEST_PTY=1
+  case $(uname -s) in
+    Darwin) exec script -q /dev/null "$0" "$@" ;;
+    Linux)
+      printf -v quoted_script '%q' "$0"
+      exec script -qec "$quoted_script" /dev/null
+      ;;
+    *)
+      printf 'FAIL: unsupported test platform\n' >&2
+      exit 1
+      ;;
+  esac
+fi
+[[ -t 0 ]] || {
+  printf 'FAIL: unable to create a test PTY\n' >&2
+  exit 1
+}
+
+ROOT=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/edwin-editor-test.XXXXXX")
+
+cleanup() {
+  rm -rf "$TEMP_DIR"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
+
+assert_file() {
+  [[ -f $1 ]] || fail "expected file: $1"
+}
+
+assert_absent() {
+  [[ ! -e $1 && ! -L $1 ]] || fail "expected absent path: $1"
+}
+
+file_mode() {
+  case $(uname -s) in
+    Darwin) stat -f '%Lp' "$1" ;;
+    Linux) stat -c '%a' "$1" ;;
+  esac
+}
+
+file_mtime() {
+  case $(uname -s) in
+    Darwin) stat -f '%m' "$1" ;;
+    Linux) stat -c '%Y' "$1" ;;
+  esac
+}
+
+sh -n "$ROOT/install.sh"
+bash -n "$ROOT/bootstrap.sh"
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck "$ROOT/install.sh" "$ROOT/bootstrap.sh" "$ROOT/test.sh"
+fi
+
+ghostty=
+if command -v ghostty >/dev/null 2>&1; then
+  ghostty=$(command -v ghostty)
+elif [[ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]]; then
+  ghostty=/Applications/Ghostty.app/Contents/MacOS/ghostty
+fi
+if [[ -n $ghostty ]]; then
+  "$ghostty" +validate-config --config-file="$ROOT/ghostty/config"
+fi
+
+nvim=
+if command -v nvim >/dev/null 2>&1; then
+  nvim=$(command -v nvim)
+elif [[ -x $HOME/.local/bin/nvim ]]; then
+  nvim=$HOME/.local/bin/nvim
+fi
+if [[ -n $nvim && -s $ROOT/nvim/lazy-lock.json ]]; then
+  "$nvim" --headless \
+    "+lua vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy' })" \
+    "+lua local ok = vim.opt.number:get() and not vim.opt.relativenumber:get() and vim.g.autoformat == false and vim.g.snacks_animate == false; if not ok then os.exit(1) end" \
+    "+lua local expected = { ['<C-h>'] = 'h', ['<C-n>'] = 'j', ['<C-e>'] = 'k', ['<C-i>'] = 'l' }; for lhs, rhs in pairs(expected) do if vim.fn.maparg(lhs, 'n') ~= rhs or vim.fn.maparg(lhs, 'i') ~= '<C-O>' .. rhs then os.exit(1) end end; if vim.fn.maparg('dh', 'i') ~= '<Esc>' then os.exit(1) end" \
+    "+lua for _, lhs in ipairs({ 'i', 'w', 'e', 'b' }) do if vim.fn.maparg(lhs, 'n') ~= '' then os.exit(1) end end" \
+    "+lua local config = require('lazy.core.config'); local plugin = require('lazy.core.plugin'); if not config.plugins['neo-tree.nvim'] then os.exit(1) end; if plugin.values(config.plugins['snacks.nvim'], 'opts', false).scroll.enabled ~= false then os.exit(1) end; local blink = plugin.values(config.plugins['blink.cmp'], 'opts', false).keymap; if blink['<C-e>'] ~= false or blink['<C-n>'] ~= false or blink['<Tab>'] ~= false then os.exit(1) end" \
+    "+lua if not vim.tbl_contains(vim.opt.clipboard:get(), 'unnamedplus') then os.exit(1) end" \
+    +qa >/dev/null 2>&1
+
+  SSH_CONNECTION='127.0.0.1 1 127.0.0.1 2' "$nvim" --headless \
+    "+lua vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy' })" \
+    "+lua if vim.g.clipboard ~= 'osc52' or #vim.opt.clipboard:get() ~= 0 then os.exit(1) end" \
+    +qa >/dev/null 2>&1
+fi
+
+grep -Fx 'noremap <C-h> h' "$ROOT/nvim/vimrc" >/dev/null
+grep -Fx 'inoremap dh <Esc>' "$ROOT/nvim/vimrc" >/dev/null
+if grep -Eq '^noremap (i|e|n|h|w|k|K) ' "$ROOT/nvim/vimrc"; then
+  fail "legacy plain-letter mappings remain"
+fi
+
+SOURCE=$TEMP_DIR/source
+mkdir -p "$SOURCE"
+COPYFILE_DISABLE=1 tar -C "$ROOT" --exclude .git -cf - . | tar -C "$SOURCE" -xf -
+chmod +x "$SOURCE/install.sh" "$SOURCE/bootstrap.sh" "$SOURCE/test.sh"
+
+git -C "$SOURCE" init -q
+git -C "$SOURCE" config user.name test
+git -C "$SOURCE" config user.email test@example.invalid
+printf 'this tracked file will be deleted\n' >"$SOURCE/delete-me"
+printf 'version 1\n' >"$SOURCE/deployment-version"
+git -C "$SOURCE" add -A
+git -C "$SOURCE" commit -qm fixture
+
+printf '\ndirty working-tree marker\n' >>"$SOURCE/README.md"
+printf 'untracked\n' >"$SOURCE/untracked file"
+printf 'leading dash\n' >"$SOURCE/-leading-name"
+newline_name=$'line\nbreak'
+printf 'newline\n' >"$SOURCE/$newline_name"
+ln -s missing-target "$SOURCE/broken-link"
+printf '\nignored-smoke\n' >>"$SOURCE/.gitignore"
+printf 'ignored\n' >"$SOURCE/ignored-smoke"
+rm -f "$SOURCE/delete-me"
+
+REMOTE_HOME=$TEMP_DIR/remote-home
+REMOTE_BIN=$TEMP_DIR/remote-bin
+TOOL_ROOT=$TEMP_DIR/tools
+LOCAL_BIN=$TEMP_DIR/local-bin
+SSH_LOG=$TEMP_DIR/ssh.log
+mkdir -p "$REMOTE_HOME" "$REMOTE_BIN" "$TOOL_ROOT" "$LOCAL_BIN"
+
+for command_name in git curl cc make; do
+  printf '#!/bin/sh\nexit 0\n' >"$REMOTE_BIN/$command_name"
+  chmod +x "$REMOTE_BIN/$command_name"
+done
+
+for binary_name in rg fd fzf lazygit tree-sitter; do
+  printf '#!/bin/sh\nexit 0\n' >"$TOOL_ROOT/$binary_name"
+  chmod +x "$TOOL_ROOT/$binary_name"
+done
+cat >"$TOOL_ROOT/nvim" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+  printf 'NVIM vtest\n'
+fi
+exit 0
+EOF
+chmod +x "$TOOL_ROOT/nvim"
+
+cat >"$REMOTE_BIN/mise" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+  trust|install) exit 0 ;;
+  which)
+    last=
+    for argument in "$@"; do
+      last=$argument
+    done
+    printf '%s/%s\n' "$FAKE_TOOL_ROOT" "$last"
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$REMOTE_BIN/mise"
+
+cat >"$REMOTE_BIN/mv" <<'EOF'
+#!/bin/sh
+if [ "${FAKE_PROMOTION_FAIL:-0}" -eq 1 ]; then
+  case ${1:-}:${2:-} in
+    */.edwin-editor.deploy.lock/stage:*/edwin-editor) exit 55 ;;
+  esac
+fi
+exec /bin/mv "$@"
+EOF
+chmod +x "$REMOTE_BIN/mv"
+
+cat >"$LOCAL_BIN/ssh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mode=none
+if [[ ${1:-} == -T || ${1:-} == -t ]]; then
+  mode=$1
+  shift
+fi
+[[ $# -eq 2 ]] || exit 64
+target=$1
+command_text=$2
+printf '%s %s\n' "$mode" "$target" >>"$FAKE_SSH_LOG"
+if [[ $mode == -T && ${FAKE_TRANSFER_STATUS:-0} -ne 0 ]]; then
+  exit "$FAKE_TRANSFER_STATUS"
+fi
+if [[ $mode == -t && ${FAKE_INSTALL_STATUS:-0} -ne 0 ]]; then
+  exit "$FAKE_INSTALL_STATUS"
+fi
+unset XDG_DATA_HOME
+HOME=$FAKE_REMOTE_HOME \
+PATH="$FAKE_REMOTE_BIN:/usr/bin:/bin" \
+FAKE_TOOL_ROOT=$FAKE_TOOL_ROOT \
+  /bin/sh -c "$command_text"
+EOF
+chmod +x "$LOCAL_BIN/ssh"
+
+export FAKE_REMOTE_HOME=$REMOTE_HOME
+export FAKE_REMOTE_BIN=$REMOTE_BIN
+export FAKE_TOOL_ROOT=$TOOL_ROOT
+export FAKE_SSH_LOG=$SSH_LOG
+
+PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
+
+DEPLOY=$REMOTE_HOME/.local/share/edwin-editor
+assert_file "$DEPLOY/install.sh"
+assert_file "$DEPLOY/untracked file"
+assert_file "$DEPLOY/-leading-name"
+assert_file "$DEPLOY/$newline_name"
+[[ -L $DEPLOY/broken-link ]] || fail "broken symlink was not deployed"
+assert_absent "$DEPLOY/ignored-smoke"
+assert_absent "$DEPLOY/delete-me"
+grep -F 'dirty working-tree marker' "$DEPLOY/README.md" >/dev/null
+grep -Fx 'version 1' "$DEPLOY/deployment-version" >/dev/null
+[[ -L $REMOTE_HOME/.config/nvim ]] || fail "Neovim config was not linked"
+[[ -L $REMOTE_HOME/.vimrc ]] || fail "Vimrc was not linked"
+[[ -L $REMOTE_HOME/.local/bin/nvim ]] || fail "Neovim binary was not linked"
+[[ $(sed -n '1p' "$SSH_LOG") == '-T fake-host' ]] || fail "archive SSH did not disable TTY"
+[[ $(sed -n '2p' "$SSH_LOG") == '-t fake-host' ]] || fail "installer SSH did not request TTY"
+
+printf 'version 2\n' >"$SOURCE/deployment-version"
+PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
+PREVIOUS=$REMOTE_HOME/.local/share/edwin-editor.previous
+assert_file "$PREVIOUS/install.sh"
+grep -Fx 'version 2' "$DEPLOY/deployment-version" >/dev/null
+grep -Fx 'version 1' "$PREVIOUS/deployment-version" >/dev/null
+assert_absent "$REMOTE_HOME/.local/share/edwin-editor.previous.previous"
+
+mv "$SOURCE/mise.toml" "$SOURCE/mise.toml.saved"
+if PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host; then
+  fail "an incomplete snapshot was promoted"
+fi
+mv "$SOURCE/mise.toml.saved" "$SOURCE/mise.toml"
+grep -Fx 'version 2' "$DEPLOY/deployment-version" >/dev/null
+grep -Fx 'version 1' "$PREVIOUS/deployment-version" >/dev/null
+
+printf 'version 3\n' >"$SOURCE/deployment-version"
+export FAKE_TRANSFER_STATUS=23
+if PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host; then
+  fail "a failed transfer was accepted"
+else
+  status=$?
+fi
+unset FAKE_TRANSFER_STATUS
+[[ $status -eq 23 ]] || fail "transfer failure status was not preserved"
+grep -Fx 'version 2' "$DEPLOY/deployment-version" >/dev/null
+grep -Fx 'version 1' "$PREVIOUS/deployment-version" >/dev/null
+
+mkdir "$REMOTE_HOME/.local/share/.edwin-editor.deploy.lock"
+if PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host; then
+  fail "a stale deployment lock was ignored"
+fi
+rmdir "$REMOTE_HOME/.local/share/.edwin-editor.deploy.lock"
+grep -Fx 'version 2' "$DEPLOY/deployment-version" >/dev/null
+grep -Fx 'version 1' "$PREVIOUS/deployment-version" >/dev/null
+
+export FAKE_PROMOTION_FAIL=1
+if PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host; then
+  fail "a failed promotion was accepted"
+fi
+unset FAKE_PROMOTION_FAIL
+grep -Fx 'version 2' "$DEPLOY/deployment-version" >/dev/null
+grep -Fx 'version 1' "$PREVIOUS/deployment-version" >/dev/null
+
+export FAKE_INSTALL_STATUS=42
+if PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host; then
+  fail "a failed remote installer was accepted"
+else
+  status=$?
+fi
+unset FAKE_INSTALL_STATUS
+[[ $status -eq 42 ]] || fail "remote installer status was not preserved"
+grep -Fx 'version 3' "$DEPLOY/deployment-version" >/dev/null
+grep -Fx 'version 2' "$PREVIOUS/deployment-version" >/dev/null
+assert_absent "$REMOTE_HOME/.local/share/edwin-editor.previous.previous"
+
+MATCHING_HOME=$TEMP_DIR/matching-home
+mkdir -p "$MATCHING_HOME"
+printf 'preserve me\n' >"$MATCHING_HOME/.vimrc"
+cp -p "$MATCHING_HOME/.vimrc" "$MATCHING_HOME/.vimrc.bak"
+HOME=$MATCHING_HOME PATH="$REMOTE_BIN:/usr/bin:/bin" FAKE_TOOL_ROOT=$TOOL_ROOT \
+  "$SOURCE/install.sh" >/dev/null
+[[ -L $MATCHING_HOME/.vimrc ]] || fail "matching Vimrc was not replaced by a symlink"
+grep -Fx 'preserve me' "$MATCHING_HOME/.vimrc.bak" >/dev/null
+
+CONFLICT_HOME=$TEMP_DIR/conflict-home
+mkdir -p "$CONFLICT_HOME"
+printf 'current\n' >"$CONFLICT_HOME/.vimrc"
+printf 'older backup\n' >"$CONFLICT_HOME/.vimrc.bak"
+if HOME=$CONFLICT_HOME PATH="$REMOTE_BIN:/usr/bin:/bin" FAKE_TOOL_ROOT=$TOOL_ROOT \
+  "$SOURCE/install.sh" >"$TEMP_DIR/conflict.log" 2>&1; then
+  fail "different Vimrc and backup were accepted"
+fi
+grep -Fx 'current' "$CONFLICT_HOME/.vimrc" >/dev/null
+grep -Fx 'older backup' "$CONFLICT_HOME/.vimrc.bak" >/dev/null
+
+FRESH_HOME=$TEMP_DIR/fresh-home
+mkdir -p "$FRESH_HOME"
+printf 'fresh original\n' >"$FRESH_HOME/.vimrc"
+chmod 600 "$FRESH_HOME/.vimrc"
+touch -t 202001020304.05 "$FRESH_HOME/.vimrc"
+original_mode=$(file_mode "$FRESH_HOME/.vimrc")
+original_mtime=$(file_mtime "$FRESH_HOME/.vimrc")
+
+FRESH_RUNNER=$TEMP_DIR/fresh-install
+cat >"$FRESH_RUNNER" <<'EOF'
+#!/bin/sh
+HOME=$TEST_INSTALL_HOME
+PATH=$TEST_INSTALL_PATH
+FAKE_TOOL_ROOT=$TEST_TOOL_ROOT
+export HOME PATH FAKE_TOOL_ROOT
+exec "$TEST_INSTALLER"
+EOF
+chmod +x "$FRESH_RUNNER"
+export TEST_INSTALL_HOME=$FRESH_HOME
+export TEST_INSTALL_PATH=$REMOTE_BIN:/usr/bin:/bin
+export TEST_TOOL_ROOT=$TOOL_ROOT
+export TEST_INSTALLER=$SOURCE/install.sh
+if command -v expect >/dev/null 2>&1; then
+  TEST_FRESH_RUNNER=$FRESH_RUNNER expect <<'EOF'
+set timeout 30
+spawn -noecho $env(TEST_FRESH_RUNNER)
+expect {
+  -re {install the shared Vimrc.*\[y/N\]} { send -- "y\r" }
+  timeout { exit 124 }
+  eof {
+    set result [wait]
+    exit [lindex $result 3]
+  }
+}
+expect eof
+set result [wait]
+exit [lindex $result 3]
+EOF
+
+  [[ -L $FRESH_HOME/.vimrc ]] || fail "fresh Vimrc was not linked"
+  grep -Fx 'fresh original' "$FRESH_HOME/.vimrc.bak" >/dev/null
+  [[ $(file_mode "$FRESH_HOME/.vimrc.bak") == "$original_mode" ]] ||
+    fail "Vimrc backup mode was not preserved"
+  [[ $(file_mtime "$FRESH_HOME/.vimrc.bak") == "$original_mtime" ]] ||
+    fail "Vimrc backup modification time was not preserved"
+  backup_checksum=$(cksum "$FRESH_HOME/.vimrc.bak")
+  HOME=$FRESH_HOME PATH="$REMOTE_BIN:/usr/bin:/bin" FAKE_TOOL_ROOT=$TOOL_ROOT \
+    "$SOURCE/install.sh" >/dev/null
+  [[ $(cksum "$FRESH_HOME/.vimrc.bak") == "$backup_checksum" ]] ||
+    fail "an idempotent install changed the Vimrc backup"
+else
+  printf 'warning: expect is unavailable; skipping the interactive Vimrc backup check\n' >&2
+fi
+unset TEST_INSTALL_HOME TEST_INSTALL_PATH TEST_TOOL_ROOT TEST_INSTALLER
+
+printf 'All checks passed.\n'
