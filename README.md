@@ -75,7 +75,7 @@ shared Vimrc provides the same Colemak motions in Vim, Neovim, and VSCodeVim:
 | `n` / `e` | One line down / up |
 | `N` / `E` | Next / previous paragraph |
 | `Ctrl+N` / `Ctrl+E` | Half-page down / up |
-| `]n` / `[n` | Continue / reverse the last search |
+| `k` / `K` | Continue / reverse the last search |
 
 Counts work with line movement (`5n`, `3e`). Insert mode keeps native editor
 and completion bindings; use `Esc` or `Ctrl+[` to return to Normal mode.
