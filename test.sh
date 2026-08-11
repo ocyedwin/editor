@@ -86,11 +86,11 @@ if [[ -n $nvim && -s $ROOT/nvim/lazy-lock.json ]]; then
   "$nvim" --headless \
     "+lua vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy' })" \
     "+lua local ok = vim.opt.number:get() and not vim.opt.relativenumber:get() and vim.g.autoformat == false and vim.g.snacks_animate == false; if not ok then os.exit(1) end" \
-    "+lua local expected = { ['<C-h>'] = 'h', ['<C-n>'] = 'j', ['<C-e>'] = 'k', ['<C-i>'] = 'l' }; for lhs, rhs in pairs(expected) do if vim.fn.maparg(lhs, 'n') ~= rhs or vim.fn.maparg(lhs, 'i') ~= '<C-O>' .. rhs then os.exit(1) end end; if vim.fn.maparg('dh', 'i') ~= '<Esc>' then os.exit(1) end" \
-    "+lua for _, lhs in ipairs({ 'i', 'w', 'e', 'b' }) do if vim.fn.maparg(lhs, 'n') ~= '' then os.exit(1) end end" \
-    "+lua local config = require('lazy.core.config'); local plugin = require('lazy.core.plugin'); if not config.plugins['neo-tree.nvim'] then os.exit(1) end; if plugin.values(config.plugins['snacks.nvim'], 'opts', false).scroll.enabled ~= false then os.exit(1) end; local blink = plugin.values(config.plugins['blink.cmp'], 'opts', false).keymap; if blink['<C-e>'] ~= false or blink['<C-n>'] ~= false or blink['<Tab>'] ~= false then os.exit(1) end" \
+    "+lua local expected = { n = 'j', e = 'k', N = '}', E = '{', ['<C-n>'] = '<C-D>', ['<C-e>'] = '<C-U>', [']n'] = 'n', ['[n'] = 'N' }; for lhs, rhs in pairs(expected) do if vim.fn.maparg(lhs, 'n') ~= rhs then os.exit(1) end end; for _, lhs in ipairs({ '<C-h>', '<C-n>', '<C-e>', '<C-i>', 'dh' }) do if vim.fn.maparg(lhs, 'i') ~= '' then os.exit(1) end end; if vim.fn.maparg('<C-h>', 'n') ~= '<C-W>h' or vim.fn.maparg('<C-i>', 'n') ~= '' or vim.fn.maparg('e', 'o') ~= '' or vim.fn.maparg('n', 'o') == 'j' then os.exit(1) end" \
+    "+lua vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'target', 'two', '', 'target', 'four', '', 'target' }); local function press(keys) vim.fn.feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), 'xt') end; vim.api.nvim_win_set_cursor(0, { 1, 0 }); press('n'); if vim.api.nvim_win_get_cursor(0)[1] ~= 2 then os.exit(1) end; press('2n'); if vim.api.nvim_win_get_cursor(0)[1] ~= 4 then os.exit(1) end; press('N'); if vim.api.nvim_win_get_cursor(0)[1] ~= 6 then os.exit(1) end; press('E'); if vim.api.nvim_win_get_cursor(0)[1] ~= 3 then os.exit(1) end; vim.fn.setreg('/', 'target'); vim.v.searchforward = 1; vim.api.nvim_win_set_cursor(0, { 1, 0 }); press(']n'); if vim.api.nvim_win_get_cursor(0)[1] ~= 4 then os.exit(1) end; press('[n'); if vim.api.nvim_win_get_cursor(0)[1] ~= 1 then os.exit(1) end; local lines = {}; for i = 1, 100 do lines[i] = tostring(i) end; vim.api.nvim_buf_set_lines(0, 0, -1, false, lines); vim.api.nvim_win_set_cursor(0, { 50, 0 }); press('<C-n>'); local down = vim.api.nvim_win_get_cursor(0)[1]; press('<C-e>'); if down <= 50 or vim.api.nvim_win_get_cursor(0)[1] >= down then os.exit(1) end" \
+    "+lua local config = require('lazy.core.config'); local plugin = require('lazy.core.plugin'); if not config.plugins['neo-tree.nvim'] then os.exit(1) end; if plugin.values(config.plugins['snacks.nvim'], 'opts', false).scroll.enabled ~= false then os.exit(1) end; local blink = plugin.values(config.plugins['blink.cmp'], 'opts', false).keymap; if blink.preset ~= 'enter' or blink['<C-e>'] == false or blink['<C-n>'] == false or blink['<Tab>'] == false then os.exit(1) end" \
     "+lua if not vim.tbl_contains(vim.opt.clipboard:get(), 'unnamedplus') then os.exit(1) end" \
-    +qa >/dev/null 2>&1
+    +qa! >/dev/null 2>&1
 
   SSH_CONNECTION='127.0.0.1 1 127.0.0.1 2' "$nvim" --headless \
     "+lua vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy' })" \
@@ -98,10 +98,13 @@ if [[ -n $nvim && -s $ROOT/nvim/lazy-lock.json ]]; then
     +qa >/dev/null 2>&1
 fi
 
-grep -Fx 'noremap <C-h> h' "$ROOT/nvim/vimrc" >/dev/null
-grep -Fx 'inoremap dh <Esc>' "$ROOT/nvim/vimrc" >/dev/null
-if grep -Eq '^noremap (i|e|n|h|w|k|K) ' "$ROOT/nvim/vimrc"; then
-  fail "legacy plain-letter mappings remain"
+grep -Fx 'nnoremap n j' "$ROOT/nvim/vimrc" >/dev/null
+grep -Fx 'nnoremap <C-n> <C-d>' "$ROOT/nvim/vimrc" >/dev/null
+if grep -Eq '^(i|n|x|o)?noremap .*<C-[hi]>' "$ROOT/nvim/vimrc"; then
+  fail "horizontal Ctrl navigation mapping remains"
+fi
+if grep -Eq '^keybind = ctrl\+(h|n|e|i)=' "$ROOT/ghostty/config"; then
+  fail "Ghostty navigation interception remains"
 fi
 
 SOURCE=$TEMP_DIR/source

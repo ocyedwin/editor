@@ -66,12 +66,20 @@ ssh workbox
 herdr
 ```
 
-Caps Lock remains mapped to Control in macOS Keyboard Settings. Ghostty turns
-Ctrl+H/N/E/I into left/down/up/right throughout the terminal. The shared
-Vimrc provides the same motions in Vim and VSCodeVim, including Insert mode.
+Caps Lock remains mapped to Control in macOS Keyboard Settings. Ghostty leaves
+terminal keys unchanged; navigation belongs to Vim's Normal mode. The
+shared Vimrc provides the same Colemak motions in Vim, Neovim, and VSCodeVim:
 
-Trade-off: Ctrl+I replaces Vim's jump-forward binding and may also be
-indistinguishable from Tab in terminals using legacy key encoding.
+| Keys | Movement |
+| --- | --- |
+| `n` / `e` | One line down / up |
+| `N` / `E` | Next / previous paragraph |
+| `Ctrl+N` / `Ctrl+E` | Half-page down / up |
+| `]n` / `[n` | Continue / reverse the last search |
+
+Counts work with line movement (`5n`, `3e`). Insert mode keeps native editor
+and completion bindings; use `Esc` or `Ctrl+[` to return to Normal mode.
+Neovim also retains LazyVim's `s` Flash jump for visible targets.
 
 ## Updating
 

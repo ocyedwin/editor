@@ -1,14 +1,11 @@
 " Colemak navigation shared by Vim, Neovim, and VSCodeVim.
-noremap <C-h> h
-noremap <C-n> j
-noremap <C-e> k
-noremap <C-i> l
+nnoremap n j
+nnoremap e k
+nnoremap N }
+nnoremap E {
+nnoremap <C-n> <C-d>
+nnoremap <C-e> <C-u>
 
-" Move while staying in Insert mode.
-inoremap <C-h> <C-o>h
-inoremap <C-n> <C-o>j
-inoremap <C-e> <C-o>k
-inoremap <C-i> <C-o>l
-
-" Escape from Insert mode without leaving the Colemak home row.
-inoremap dh <Esc>
+" Repeat the last search without reclaiming another single-letter command.
+nnoremap ]n n
+nnoremap [n N

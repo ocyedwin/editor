@@ -1,10 +1,2 @@
-# Colemak navigation. Caps Lock is mapped to Control in macOS settings.
-# Ghostty does not expose its internal cursor_key action to user bindings.
-# Send the standard cursor CSI sequences instead.
-keybind = ctrl+h=csi:D
-keybind = ctrl+n=csi:B
-keybind = ctrl+e=csi:A
-keybind = ctrl+i=csi:C
-
 # Preserve Ghostty defaults while adding remote terminfo and environment setup.
 shell-integration-features = cursor,no-sudo,title,ssh-env,ssh-terminfo,path
