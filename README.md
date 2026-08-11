@@ -78,8 +78,8 @@ shared Vimrc provides the same Colemak motions in Vim, Neovim, and VSCodeVim:
 | `k` / `K` | Continue / reverse the last search |
 
 Counts work with line movement (`5n`, `3e`). Insert mode keeps native editor
-and completion bindings; use `Esc` or `Ctrl+[` to return to Normal mode.
-Neovim also retains LazyVim's `s` Flash jump for visible targets.
+and completion bindings; use `dh`, `Esc`, or `Ctrl+[` to return to Normal
+mode. Neovim also retains LazyVim's `s` Flash jump for visible targets.
 
 ## Updating
 

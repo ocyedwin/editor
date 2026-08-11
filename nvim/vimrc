@@ -9,3 +9,6 @@ nnoremap <C-e> <C-u>
 " Keep search repetition on the keys from the original Colemak layout.
 nnoremap k n
 nnoremap K N
+
+" Escape from Insert mode without leaving the Colemak home row.
+inoremap dh <Esc>
