@@ -62,22 +62,6 @@ confirm() {
 }
 
 OS=$(uname -s)
-ARCH=$(uname -m)
-
-case "$OS:$ARCH" in
-  Darwin:arm64|Darwin:x86_64|Linux:aarch64|Linux:arm64|Linux:x86_64) ;;
-  *) die "unsupported platform: $OS $ARCH" ;;
-esac
-
-if [ "$OS" = Linux ]; then
-  if command -v getconf >/dev/null 2>&1 && getconf GNU_LIBC_VERSION >/dev/null 2>&1; then
-    :
-  elif command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -Eqi 'glibc|GNU libc'; then
-    :
-  else
-    die "Linux support currently requires glibc"
-  fi
-fi
 
 missing_commands() {
   missing=
@@ -152,26 +136,15 @@ log "Installing stable tools with mise"
 "$MISE" trust --yes "$SCRIPT_DIR/mise.toml"
 "$MISE" install --yes --cd "$SCRIPT_DIR"
 
-link_binary() {
-  binary_name=$1
+for binary_name in nvim rg fd fzf lazygit tree-sitter; do
   target=$("$MISE" which --cd "$SCRIPT_DIR" "$binary_name")
-  [ -n "$target" ] && [ -x "$target" ] || die "mise did not provide an executable $binary_name"
+  [ -x "$target" ] || die "mise did not provide an executable $binary_name"
   link=$LOCAL_BIN/$binary_name
-
-  if [ -L "$link" ]; then
-    if [ "$(readlink "$link")" = "$target" ]; then
-      return
-    fi
-    rm -f "$link"
-  elif [ -e "$link" ]; then
+  if [ -e "$link" ] && [ ! -L "$link" ]; then
     die "$link exists and is not a symlink"
   fi
-
+  rm -f "$link"
   ln -s "$target" "$link"
-}
-
-for binary_name in nvim rg fd fzf lazygit tree-sitter; do
-  link_binary "$binary_name"
 done
 
 case ":${PATH:-}:" in

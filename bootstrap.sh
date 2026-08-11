@@ -3,12 +3,8 @@ set -euo pipefail
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 
-usage() {
-  printf 'Usage: %s <ssh-target>\n' "${0##*/}"
-}
-
 if [[ $# -ne 1 || $1 == -* ]]; then
-  usage >&2
+  printf 'Usage: %s <ssh-target>\n' "${0##*/}" >&2
   exit 2
 fi
 
@@ -19,24 +15,9 @@ if [[ ! -t 0 ]]; then
   exit 1
 fi
 
-for command_name in git ssh tar; do
-  command -v "$command_name" >/dev/null 2>&1 || {
-    printf 'error: required local command not found: %s\n' "$command_name" >&2
-    exit 1
-  }
-done
-
-git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
-  printf 'error: %s is not a Git working tree\n' "$ROOT" >&2
-  exit 1
-}
-
 commit=$(git -C "$ROOT" rev-parse --short HEAD)
-if [[ -n $(git -C "$ROOT" status --porcelain) ]]; then
-  state=dirty
-else
-  state=clean
-fi
+state=clean
+[[ -z $(git -C "$ROOT" status --porcelain) ]] || state=dirty
 printf 'Deploying %s (%s) to %s\n' "$commit" "$state" "$TARGET"
 
 IFS= read -r -d '' remote_deploy <<'REMOTE' || true
@@ -51,10 +32,6 @@ case ${HOME:-} in
     exit 1
     ;;
 esac
-command -v tar >/dev/null 2>&1 || {
-  printf 'error: remote tar is required\n' >&2
-  exit 1
-}
 data_root=$HOME/.local/share
 destination=$data_root/edwin-editor
 previous=$data_root/edwin-editor.previous
@@ -66,24 +43,11 @@ if ! mkdir "$lock"; then
 fi
 stage=$lock/stage
 saved_previous=$lock/previous
-had_previous=0
-had_destination=0
-moved_destination=0
+rotated=0
 promoted=0
-finish_commit() {
-  [ "$had_previous" -eq 1 ] || return 0
-  if [ "$had_destination" -eq 1 ]; then
-    if [ -e "$saved_previous" ] || [ -L "$saved_previous" ]; then
-      rm -rf "$saved_previous"
-    fi
-  elif [ -e "$saved_previous" ] || [ -L "$saved_previous" ]; then
-    [ ! -e "$previous" ] && [ ! -L "$previous" ] || return 1
-    mv "$saved_previous" "$previous"
-  fi
-}
 cleanup() {
-  if [ "$promoted" -eq 0 ]; then
-    if [ "$moved_destination" -eq 1 ]; then
+  if [ "$rotated" -eq 1 ]; then
+    if [ "$promoted" -eq 0 ]; then
       if { [ -e "$destination" ] || [ -L "$destination" ]; } &&
         [ ! -e "$stage" ] && [ ! -L "$stage" ]; then
         mv "$destination" "$stage" 2>/dev/null || true
@@ -92,14 +56,13 @@ cleanup() {
         [ -e "$previous" ] && [ ! -L "$previous" ]; then
         mv "$previous" "$destination" 2>/dev/null || true
       fi
+      if { [ -e "$saved_previous" ] || [ -L "$saved_previous" ]; } &&
+        [ ! -e "$previous" ] && [ ! -L "$previous" ]; then
+        mv "$saved_previous" "$previous" 2>/dev/null || true
+      fi
+    elif [ -e "$saved_previous" ] || [ -L "$saved_previous" ]; then
+      rm -rf "$saved_previous"
     fi
-    if [ "$had_previous" -eq 1 ] &&
-      { [ -e "$saved_previous" ] || [ -L "$saved_previous" ]; } &&
-      [ ! -e "$previous" ] && [ ! -L "$previous" ]; then
-      mv "$saved_previous" "$previous" 2>/dev/null || true
-    fi
-  else
-    finish_commit 2>/dev/null || true
   fi
   [ -z "${stage:-}" ] || rm -rf "$stage"
   rmdir "$lock" 2>/dev/null || true
@@ -108,12 +71,6 @@ trap cleanup 0
 trap 'exit 1' 1 2 15
 mkdir "$stage"
 tar -xf - -C "$stage"
-[ -x "$stage/install.sh" ] && [ ! -L "$stage/install.sh" ] &&
-  [ -f "$stage/mise.toml" ] && [ ! -L "$stage/mise.toml" ] &&
-  [ -f "$stage/nvim/init.lua" ] && [ ! -L "$stage/nvim/init.lua" ] || {
-  printf 'error: transferred snapshot is incomplete\n' >&2
-  exit 1
-}
 
 valid_snapshot() {
   [ -d "$1" ] && [ ! -L "$1" ] &&
@@ -122,27 +79,23 @@ valid_snapshot() {
     [ -f "$1/nvim/init.lua" ] && [ ! -L "$1/nvim/init.lua" ]
 }
 
-if [ -e "$destination" ] || [ -L "$destination" ]; then
-  valid_snapshot "$destination" || {
-    printf 'error: refusing to replace unrelated deployment: %s\n' "$destination" >&2
+valid_snapshot "$stage" || {
+  printf 'error: transferred snapshot is incomplete\n' >&2
+  exit 1
+}
+for snapshot in "$destination" "$previous"; do
+  if { [ -e "$snapshot" ] || [ -L "$snapshot" ]; } && ! valid_snapshot "$snapshot"; then
+    printf 'error: refusing to replace unrelated deployment: %s\n' "$snapshot" >&2
     exit 1
-  }
-fi
-if [ -e "$previous" ] || [ -L "$previous" ]; then
-  valid_snapshot "$previous" || {
-    printf 'error: refusing to remove unrelated previous deployment: %s\n' "$previous" >&2
-    exit 1
-  }
-fi
+  fi
+done
 
-if [ -e "$previous" ] || [ -L "$previous" ]; then
-  had_previous=1
-  mv "$previous" "$saved_previous"
-fi
 if [ -e "$destination" ] || [ -L "$destination" ]; then
-  moved_destination=1
+  rotated=1
+  if [ -e "$previous" ] || [ -L "$previous" ]; then
+    mv "$previous" "$saved_previous"
+  fi
   mv "$destination" "$previous"
-  had_destination=1
 fi
 if ! mv "$stage" "$destination"; then
   printf 'error: failed to promote the new deployment\n' >&2
@@ -150,7 +103,6 @@ if ! mv "$stage" "$destination"; then
 fi
 promoted=1
 stage=
-finish_commit
 trap - 1 2 15
 REMOTE
 
@@ -188,13 +140,7 @@ COPYFILE_DISABLE=1 tar -C "$ROOT" "${tar_options[@]}" -T "$file_list" -cf "$arch
 # shellcheck disable=SC2029
 ssh -T "$TARGET" "$remote_deploy" <"$archive"
 
-IFS= read -r -d '' remote_install <<'REMOTE' || true
-set -eu
-data_root=$HOME/.local/share
-exec "$data_root/edwin-editor/install.sh"
-REMOTE
-
-if ssh -t "$TARGET" "$remote_install"; then
+if ssh -t "$TARGET" 'exec "$HOME/.local/share/edwin-editor/install.sh"'; then
   :
 else
   status=$?

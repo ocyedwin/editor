@@ -18,22 +18,7 @@ require("lazy").setup({
     { import = "lazyvim.plugins.extras.editor.neo-tree" },
     { import = "plugins" },
   },
-  defaults = {
-    lazy = false,
-    version = false,
-  },
   install = { colorscheme = { "tokyonight", "habamax" } },
   checker = { enabled = true, notify = false },
   rocks = { enabled = false },
-  performance = {
-    rtp = {
-      disabled_plugins = {
-        "gzip",
-        "tarPlugin",
-        "tohtml",
-        "tutor",
-        "zipPlugin",
-      },
-    },
-  },
 })
