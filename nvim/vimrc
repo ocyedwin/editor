@@ -1,10 +1,10 @@
 " Colemak navigation shared by Vim, Neovim, and VSCodeVim.
 nnoremap n j
 nnoremap e k
-nnoremap N }
-nnoremap E {
-nnoremap <C-n> <C-d>
-nnoremap <C-e> <C-u>
+nnoremap N <C-d>
+nnoremap E <C-u>
+nnoremap <C-n> }
+nnoremap <C-e> {
 
 " Keep search repetition on the keys from the original Colemak layout.
 nnoremap k n
