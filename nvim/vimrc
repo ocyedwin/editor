@@ -5,10 +5,18 @@ nnoremap N <C-d>
 nnoremap E <C-u>
 nnoremap <C-n> }
 nnoremap <C-e> {
+xnoremap n j
+xnoremap e k
+xnoremap N <C-d>
+xnoremap E <C-u>
+xnoremap <C-n> }
+xnoremap <C-e> {
 
 " Keep search repetition on the keys from the original Colemak layout.
 nnoremap k n
 nnoremap K N
+xnoremap k n
+xnoremap K N
 
 " Escape from Insert mode without leaving the Colemak home row.
 inoremap dh <Esc>

@@ -77,8 +77,8 @@ herdr
 ```
 
 Caps Lock remains mapped to Control in macOS Keyboard Settings. Ghostty leaves
-terminal keys unchanged; navigation belongs to Vim's Normal mode. The
-shared Vimrc provides the same Colemak motions in Vim, Neovim, and VSCodeVim:
+terminal keys unchanged; navigation belongs to Vim's Normal and Visual modes.
+The shared Vimrc provides the same Colemak motions in Vim, Neovim, and VSCodeVim:
 
 | Keys | Movement |
 | --- | --- |
@@ -87,9 +87,10 @@ shared Vimrc provides the same Colemak motions in Vim, Neovim, and VSCodeVim:
 | `Ctrl+N` / `Ctrl+E` | Next / previous paragraph |
 | `k` / `K` | Continue / reverse the last search |
 
-Counts work with line movement (`5n`, `3e`). Insert mode keeps native editor
-and completion bindings; use `dh`, `Esc`, or `Ctrl+[` to return to Normal
-mode. Neovim also retains LazyVim's `s` Flash jump for visible targets.
+Counts work with line movement (`5n`, `3e`), and Visual mode extends the
+selection with the same keys. Insert mode keeps native editor and completion
+bindings; use `dh`, `Esc`, or `Ctrl+[` to return to Normal mode. Neovim also
+retains LazyVim's `s` Flash jump for visible targets.
 
 ## Updating
 
