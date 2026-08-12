@@ -25,8 +25,18 @@ VSCodeVim should keep using the shared file:
 
 ```jsonc
 "vim.vimrc.enable": true,
-"vim.vimrc.path": "$HOME/.vimrc"
+"vim.vimrc.path": "$HOME/.vimrc",
+"vim.leader": "<space>",
+"vim.normalModeKeyBindingsNonRecursive": [
+  {
+    "before": ["<leader>", "<leader>"],
+    "commands": ["workbench.action.quickOpen"]
+  }
+]
 ```
+
+`Space Space` then opens the project file picker in both VSCodeVim and
+Neovim.
 
 ## Remote setup
 
