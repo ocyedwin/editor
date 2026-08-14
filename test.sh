@@ -46,20 +46,6 @@ assert_absent() {
   [[ ! -e $1 && ! -L $1 ]] || fail "expected absent path: $1"
 }
 
-file_mode() {
-  case $(uname -s) in
-    Darwin) stat -f '%Lp' "$1" ;;
-    Linux) stat -c '%a' "$1" ;;
-  esac
-}
-
-file_mtime() {
-  case $(uname -s) in
-    Darwin) stat -f '%m' "$1" ;;
-    Linux) stat -c '%Y' "$1" ;;
-  esac
-}
-
 sh -n "$ROOT/install.sh"
 bash -n "$ROOT/bootstrap.sh"
 if command -v shellcheck >/dev/null 2>&1; then
@@ -73,7 +59,24 @@ elif [[ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]]; then
   ghostty=/Applications/Ghostty.app/Contents/MacOS/ghostty
 fi
 if [[ -n $ghostty ]]; then
-  "$ghostty" +validate-config --config-file="$ROOT/ghostty/config"
+  "$ghostty" +validate-config --config-file="$ROOT/home/Library/Application Support/com.mitchellh.ghostty/config"
+fi
+
+chezmoi=
+if command -v chezmoi >/dev/null 2>&1; then
+  chezmoi=$(command -v chezmoi)
+elif [[ -x $HOME/.local/bin/chezmoi ]]; then
+  chezmoi=$HOME/.local/bin/chezmoi
+fi
+if [[ -n $chezmoi ]]; then
+  CHEZMOI_HOME=$TEMP_DIR/chezmoi-home
+  mkdir -p "$CHEZMOI_HOME"
+  "$chezmoi" --source "$ROOT" --destination "$CHEZMOI_HOME" apply
+  "$chezmoi" --source "$ROOT" --destination "$CHEZMOI_HOME" verify
+  assert_file "$CHEZMOI_HOME/.config/nvim/init.lua"
+  assert_file "$CHEZMOI_HOME/.config/hunk/config.toml"
+  assert_file "$CHEZMOI_HOME/.config/herdr/config.toml"
+  [[ -L $CHEZMOI_HOME/.vimrc ]] || fail "chezmoi did not create the Vimrc symlink"
 fi
 
 nvim=
@@ -82,8 +85,8 @@ if command -v nvim >/dev/null 2>&1; then
 elif [[ -x $HOME/.local/bin/nvim ]]; then
   nvim=$HOME/.local/bin/nvim
 fi
-if [[ -n $nvim && -s $ROOT/nvim/lazy-lock.json ]]; then
-  "$nvim" --headless \
+if [[ -n $nvim && -s $ROOT/home/dot_config/nvim/lazy-lock.json ]]; then
+  env -u SSH_CONNECTION -u SSH_TTY "$nvim" --headless \
     "+lua vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy' })" \
     "+lua local ok = vim.opt.number:get() and not vim.opt.relativenumber:get() and vim.g.autoformat == false and vim.g.snacks_animate == false; if not ok then os.exit(1) end" \
     "+lua local expected = { n = 'j', e = 'k', N = '<C-D>', E = '<C-U>', k = 'n', K = 'N', ['<C-n>'] = '}', ['<C-e>'] = '{' }; for _, mode in ipairs({ 'n', 'x' }) do for lhs, rhs in pairs(expected) do if vim.fn.maparg(lhs, mode) ~= rhs then os.exit(1) end end end; for _, lhs in ipairs({ '<C-h>', '<C-n>', '<C-e>', '<C-i>' }) do if vim.fn.maparg(lhs, 'i') ~= '' then os.exit(1) end end; if vim.fn.maparg('dh', 'i') ~= '<Esc>' or vim.fn.maparg('<C-h>', 'n') ~= '<C-W>h' or vim.fn.maparg('<C-i>', 'n') ~= '' or vim.fn.maparg('e', 'o') ~= '' or vim.fn.maparg('n', 'o') == 'j' or vim.fn.maparg('k', 'o') ~= '' then os.exit(1) end" \
@@ -98,12 +101,18 @@ if [[ -n $nvim && -s $ROOT/nvim/lazy-lock.json ]]; then
     +qa >/dev/null 2>&1
 fi
 
-grep -Fx 'nnoremap n j' "$ROOT/nvim/vimrc" >/dev/null
-grep -Fx 'nnoremap <C-n> }' "$ROOT/nvim/vimrc" >/dev/null
-if grep -Eq '^(i|n|x|o)?noremap .*<C-[hi]>' "$ROOT/nvim/vimrc"; then
+grep -Fx 'nnoremap n j' "$ROOT/home/dot_config/nvim/vimrc" >/dev/null
+grep -Fx 'nnoremap <C-n> }' "$ROOT/home/dot_config/nvim/vimrc" >/dev/null
+grep -Fx '"hunk.review.stepDown" = ["n", "down"]' "$ROOT/home/dot_config/hunk/config.toml" >/dev/null
+grep -Fx '"hunk.review.stepUp" = ["e", "up"]' "$ROOT/home/dot_config/hunk/config.toml" >/dev/null
+grep -Fx '"hunk.review.nextHunk" = "ctrl+n"' "$ROOT/home/dot_config/hunk/config.toml" >/dev/null
+grep -Fx '"hunk.review.previousHunk" = "ctrl+e"' "$ROOT/home/dot_config/hunk/config.toml" >/dev/null
+grep -Fx '"hunk.review.pageDown" = ["E", "pagedown", "space"]' "$ROOT/home/dot_config/hunk/config.toml" >/dev/null
+grep -Fx '"hunk.review.pageUp" = ["N", "pageup", "shift+space"]' "$ROOT/home/dot_config/hunk/config.toml" >/dev/null
+if grep -Eq '^(i|n|x|o)?noremap .*<C-[hi]>' "$ROOT/home/dot_config/nvim/vimrc"; then
   fail "horizontal Ctrl navigation mapping remains"
 fi
-if grep -Eq '^keybind = ctrl\+(h|n|e|i)=' "$ROOT/ghostty/config"; then
+if grep -Eq '^keybind = ctrl\+(h|n|e|i)=' "$ROOT/home/Library/Application Support/com.mitchellh.ghostty/config"; then
   fail "Ghostty navigation interception remains"
 fi
 
@@ -142,7 +151,7 @@ for command_name in git curl cc make; do
   chmod +x "$REMOTE_BIN/$command_name"
 done
 
-for binary_name in rg fd fzf lazygit tree-sitter; do
+for binary_name in rg fd fzf lazygit tree-sitter hunk; do
   printf '#!/bin/sh\nexit 0\n' >"$TOOL_ROOT/$binary_name"
   chmod +x "$TOOL_ROOT/$binary_name"
 done
@@ -154,6 +163,37 @@ fi
 exit 0
 EOF
 chmod +x "$TOOL_ROOT/nvim"
+
+cat >"$TOOL_ROOT/chezmoi" <<'EOF'
+#!/bin/sh
+set -eu
+source_dir=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -S|--source) source_dir=$2; shift 2 ;;
+    apply) shift; break ;;
+    *) shift ;;
+  esac
+done
+[ -n "$source_dir" ]
+rm -rf "$HOME/.config/nvim" "$HOME/.config/hunk" "$HOME/.config/herdr"
+mkdir -p "$HOME/.config"
+cp -R "$source_dir/home/dot_config/nvim" "$HOME/.config/nvim"
+cp -R "$source_dir/home/dot_config/hunk" "$HOME/.config/hunk"
+cp -R "$source_dir/home/dot_config/herdr" "$HOME/.config/herdr"
+rm -f "$HOME/.vimrc"
+ln -s .config/nvim/vimrc "$HOME/.vimrc"
+EOF
+chmod +x "$TOOL_ROOT/chezmoi"
+
+cat >"$TOOL_ROOT/herdr-build" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+  --version) printf 'herdr test\n' ;;
+  config) [ "${2:-}" = check ] ;;
+esac
+EOF
+chmod +x "$TOOL_ROOT/herdr-build"
 
 cat >"$REMOTE_BIN/mise" <<'EOF'
 #!/bin/sh
@@ -212,11 +252,13 @@ export FAKE_REMOTE_HOME=$REMOTE_HOME
 export FAKE_REMOTE_BIN=$REMOTE_BIN
 export FAKE_TOOL_ROOT=$TOOL_ROOT
 export FAKE_SSH_LOG=$SSH_LOG
+export HERDR_BINARY=$TOOL_ROOT/herdr-build
 
 PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
 
 DEPLOY=$REMOTE_HOME/.local/share/edwin-editor
 assert_file "$DEPLOY/install.sh"
+[[ -x $DEPLOY/herdr ]] || fail "custom Herdr binary was not deployed"
 assert_file "$DEPLOY/untracked file"
 assert_file "$DEPLOY/-leading-name"
 assert_file "$DEPLOY/$newline_name"
@@ -225,11 +267,18 @@ assert_absent "$DEPLOY/ignored-smoke"
 assert_absent "$DEPLOY/delete-me"
 grep -F 'dirty working-tree marker' "$DEPLOY/README.md" >/dev/null
 grep -Fx 'version 1' "$DEPLOY/deployment-version" >/dev/null
-[[ -L $REMOTE_HOME/.config/nvim ]] || fail "Neovim config was not linked"
+[[ -d $REMOTE_HOME/.config/nvim && ! -L $REMOTE_HOME/.config/nvim ]] ||
+  fail "Neovim config was not applied"
 [[ -L $REMOTE_HOME/.vimrc ]] || fail "Vimrc was not linked"
+assert_file "$REMOTE_HOME/.config/hunk/config.toml"
+assert_file "$REMOTE_HOME/.config/herdr/config.toml"
+[[ -x $REMOTE_HOME/.local/bin/herdr ]] || fail "custom Herdr binary was not installed"
 [[ -L $REMOTE_HOME/.local/bin/nvim ]] || fail "Neovim binary was not linked"
-[[ $(sed -n '1p' "$SSH_LOG") == '-T fake-host' ]] || fail "archive SSH did not disable TTY"
-[[ $(sed -n '2p' "$SSH_LOG") == '-t fake-host' ]] || fail "installer SSH did not request TTY"
+[[ -L $REMOTE_HOME/.local/bin/chezmoi ]] || fail "chezmoi binary was not linked"
+[[ -L $REMOTE_HOME/.local/bin/hunk ]] || fail "Hunk binary was not linked"
+[[ $(sed -n '1p' "$SSH_LOG") == 'none fake-host' ]] || fail "target platform was not inspected"
+[[ $(sed -n '2p' "$SSH_LOG") == '-T fake-host' ]] || fail "archive SSH did not disable TTY"
+[[ $(sed -n '3p' "$SSH_LOG") == '-t fake-host' ]] || fail "installer SSH did not request TTY"
 
 printf 'version 2\n' >"$SOURCE/deployment-version"
 PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
@@ -286,80 +335,5 @@ unset FAKE_INSTALL_STATUS
 grep -Fx 'version 3' "$DEPLOY/deployment-version" >/dev/null
 grep -Fx 'version 2' "$PREVIOUS/deployment-version" >/dev/null
 assert_absent "$REMOTE_HOME/.local/share/edwin-editor.previous.previous"
-
-MATCHING_HOME=$TEMP_DIR/matching-home
-mkdir -p "$MATCHING_HOME"
-printf 'preserve me\n' >"$MATCHING_HOME/.vimrc"
-cp -p "$MATCHING_HOME/.vimrc" "$MATCHING_HOME/.vimrc.bak"
-HOME=$MATCHING_HOME PATH="$REMOTE_BIN:/usr/bin:/bin" FAKE_TOOL_ROOT=$TOOL_ROOT \
-  "$SOURCE/install.sh" >/dev/null
-[[ -L $MATCHING_HOME/.vimrc ]] || fail "matching Vimrc was not replaced by a symlink"
-grep -Fx 'preserve me' "$MATCHING_HOME/.vimrc.bak" >/dev/null
-
-CONFLICT_HOME=$TEMP_DIR/conflict-home
-mkdir -p "$CONFLICT_HOME"
-printf 'current\n' >"$CONFLICT_HOME/.vimrc"
-printf 'older backup\n' >"$CONFLICT_HOME/.vimrc.bak"
-if HOME=$CONFLICT_HOME PATH="$REMOTE_BIN:/usr/bin:/bin" FAKE_TOOL_ROOT=$TOOL_ROOT \
-  "$SOURCE/install.sh" >"$TEMP_DIR/conflict.log" 2>&1; then
-  fail "different Vimrc and backup were accepted"
-fi
-grep -Fx 'current' "$CONFLICT_HOME/.vimrc" >/dev/null
-grep -Fx 'older backup' "$CONFLICT_HOME/.vimrc.bak" >/dev/null
-
-FRESH_HOME=$TEMP_DIR/fresh-home
-mkdir -p "$FRESH_HOME"
-printf 'fresh original\n' >"$FRESH_HOME/.vimrc"
-chmod 600 "$FRESH_HOME/.vimrc"
-touch -t 202001020304.05 "$FRESH_HOME/.vimrc"
-original_mode=$(file_mode "$FRESH_HOME/.vimrc")
-original_mtime=$(file_mtime "$FRESH_HOME/.vimrc")
-
-FRESH_RUNNER=$TEMP_DIR/fresh-install
-cat >"$FRESH_RUNNER" <<'EOF'
-#!/bin/sh
-HOME=$TEST_INSTALL_HOME
-PATH=$TEST_INSTALL_PATH
-FAKE_TOOL_ROOT=$TEST_TOOL_ROOT
-export HOME PATH FAKE_TOOL_ROOT
-exec "$TEST_INSTALLER"
-EOF
-chmod +x "$FRESH_RUNNER"
-export TEST_INSTALL_HOME=$FRESH_HOME
-export TEST_INSTALL_PATH=$REMOTE_BIN:/usr/bin:/bin
-export TEST_TOOL_ROOT=$TOOL_ROOT
-export TEST_INSTALLER=$SOURCE/install.sh
-if command -v expect >/dev/null 2>&1; then
-  TEST_FRESH_RUNNER=$FRESH_RUNNER expect <<'EOF'
-set timeout 30
-spawn -noecho $env(TEST_FRESH_RUNNER)
-expect {
-  -re {install the shared Vimrc.*\[y/N\]} { send -- "y\r" }
-  timeout { exit 124 }
-  eof {
-    set result [wait]
-    exit [lindex $result 3]
-  }
-}
-expect eof
-set result [wait]
-exit [lindex $result 3]
-EOF
-
-  [[ -L $FRESH_HOME/.vimrc ]] || fail "fresh Vimrc was not linked"
-  grep -Fx 'fresh original' "$FRESH_HOME/.vimrc.bak" >/dev/null
-  [[ $(file_mode "$FRESH_HOME/.vimrc.bak") == "$original_mode" ]] ||
-    fail "Vimrc backup mode was not preserved"
-  [[ $(file_mtime "$FRESH_HOME/.vimrc.bak") == "$original_mtime" ]] ||
-    fail "Vimrc backup modification time was not preserved"
-  backup_checksum=$(cksum "$FRESH_HOME/.vimrc.bak")
-  HOME=$FRESH_HOME PATH="$REMOTE_BIN:/usr/bin:/bin" FAKE_TOOL_ROOT=$TOOL_ROOT \
-    "$SOURCE/install.sh" >/dev/null
-  [[ $(cksum "$FRESH_HOME/.vimrc.bak") == "$backup_checksum" ]] ||
-    fail "an idempotent install changed the Vimrc backup"
-else
-  printf 'warning: expect is unavailable; skipping the interactive Vimrc backup check\n' >&2
-fi
-unset TEST_INSTALL_HOME TEST_INSTALL_PATH TEST_TOOL_ROOT TEST_INSTALLER
 
 printf 'All checks passed.\n'

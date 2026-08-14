@@ -20,6 +20,51 @@ state=clean
 [[ -z $(git -C "$ROOT" status --porcelain) ]] || state=dirty
 printf 'Deploying %s (%s) to %s\n' "$commit" "$state" "$TARGET"
 
+remote_platform=$(ssh "$TARGET" 'printf "%s/%s\n" "$(uname -s)" "$(uname -m)"')
+local_platform=$(printf '%s/%s\n' "$(uname -s)" "$(uname -m)")
+HERDR_ROOT=${HERDR_ROOT:-$ROOT/../2026-08-12-herdrdev-herdr}
+if [[ -z ${HERDR_BINARY:-} ]]; then
+  case $remote_platform in
+    Darwin/arm64)
+      candidates=("$HERDR_ROOT/target/aarch64-apple-darwin/release/herdr")
+      ;;
+    Darwin/x86_64)
+      candidates=("$HERDR_ROOT/target/x86_64-apple-darwin/release/herdr")
+      ;;
+    Linux/x86_64)
+      candidates=(
+        "$HERDR_ROOT/target/x86_64-unknown-linux-musl/release/herdr"
+        "$HERDR_ROOT/target/x86_64-unknown-linux-gnu/release/herdr"
+      )
+      ;;
+    Linux/aarch64|Linux/arm64)
+      candidates=(
+        "$HERDR_ROOT/target/aarch64-unknown-linux-musl/release/herdr"
+        "$HERDR_ROOT/target/aarch64-unknown-linux-gnu/release/herdr"
+      )
+      ;;
+    *)
+      printf 'error: unsupported Herdr target platform: %s\n' "$remote_platform" >&2
+      exit 1
+      ;;
+  esac
+  if [[ $local_platform == "$remote_platform" ]]; then
+    candidates+=("$HERDR_ROOT/target/release/herdr")
+  fi
+  for candidate in "${candidates[@]}"; do
+    if [[ -x $candidate ]]; then
+      HERDR_BINARY=$candidate
+      break
+    fi
+  done
+fi
+if [[ ! -x ${HERDR_BINARY:-} ]]; then
+  printf 'error: no custom Herdr build for %s; build it under %s/target or set HERDR_BINARY\n' \
+    "$remote_platform" "$HERDR_ROOT" >&2
+  exit 1
+fi
+printf 'Including custom Herdr build: %s\n' "$HERDR_BINARY"
+
 IFS= read -r -d '' remote_deploy <<'REMOTE' || true
 set -eu
 case ${HOME:-} in
@@ -76,11 +121,24 @@ valid_snapshot() {
   [ -d "$1" ] && [ ! -L "$1" ] &&
     [ -x "$1/install.sh" ] && [ ! -L "$1/install.sh" ] &&
     [ -f "$1/mise.toml" ] && [ ! -L "$1/mise.toml" ] &&
-    [ -f "$1/nvim/init.lua" ] && [ ! -L "$1/nvim/init.lua" ]
+    {
+      { [ -f "$1/.chezmoiroot" ] && [ ! -L "$1/.chezmoiroot" ] &&
+        [ -f "$1/home/dot_config/nvim/init.lua" ] &&
+        [ ! -L "$1/home/dot_config/nvim/init.lua" ]; } ||
+      { [ -f "$1/nvim/init.lua" ] && [ ! -L "$1/nvim/init.lua" ]; }
+    }
 }
 
 valid_snapshot "$stage" || {
   printf 'error: transferred snapshot is incomplete\n' >&2
+  exit 1
+}
+[ -x "$stage/herdr" ] || {
+  printf 'error: transferred snapshot has no custom Herdr binary\n' >&2
+  exit 1
+}
+"$stage/herdr" --version >/dev/null 2>&1 || {
+  printf 'error: transferred Herdr binary cannot run on this target\n' >&2
   exit 1
 }
 for snapshot in "$destination" "$previous"; do
@@ -110,6 +168,7 @@ temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/edwin-editor.XXXXXX")
 raw_list=$temp_dir/git-files
 file_list=$temp_dir/archive-files
 archive=$temp_dir/editor.tar
+payload=$temp_dir/payload
 cleanup_temp() {
   rm -rf "$temp_dir"
 }
@@ -134,6 +193,10 @@ if [[ $(uname -s) == Darwin ]]; then
 fi
 
 COPYFILE_DISABLE=1 tar -C "$ROOT" "${tar_options[@]}" -T "$file_list" -cf "$archive"
+mkdir "$payload"
+cp "$HERDR_BINARY" "$payload/herdr"
+chmod 755 "$payload/herdr"
+COPYFILE_DISABLE=1 tar -C "$payload" -rf "$archive" herdr
 
 # Never allocate a TTY while streaming a binary archive.
 # The static command is intentionally interpreted by the remote shell.

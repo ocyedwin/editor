@@ -2,7 +2,6 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
-INSTALL_GHOSTTY=0
 
 log() {
   printf '%s\n' "$*"
@@ -19,29 +18,18 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: ./install.sh [--ghostty]
+Usage: ./install.sh
 
-Installs editor tools and links the portable Vim/Neovim configuration.
-  --ghostty  Also link the tracked Ghostty configuration (macOS only).
+Installs editor tools and applies the portable dotfiles with chezmoi.
 EOF
 }
 
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --ghostty)
-      INSTALL_GHOSTTY=1
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      usage >&2
-      die "unknown argument: $1"
-      ;;
-  esac
-  shift
-done
+case ${1:-} in
+  '') ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage >&2; die "unknown argument: $1" ;;
+esac
+[ "$#" -le 1 ] || { usage >&2; die "too many arguments"; }
 
 case ${HOME:-} in
   /*) [ "$HOME" != "/" ] || die "HOME must identify a user home directory" ;;
@@ -136,7 +124,7 @@ log "Installing stable tools with mise"
 "$MISE" trust --yes "$SCRIPT_DIR/mise.toml"
 "$MISE" install --yes --cd "$SCRIPT_DIR"
 
-for binary_name in nvim rg fd fzf lazygit tree-sitter; do
+for binary_name in nvim rg fd fzf lazygit tree-sitter chezmoi hunk; do
   target=$("$MISE" which --cd "$SCRIPT_DIR" "$binary_name")
   [ -x "$target" ] || die "mise did not provide an executable $binary_name"
   link=$LOCAL_BIN/$binary_name
@@ -152,61 +140,21 @@ case ":${PATH:-}:" in
   *) warn "$LOCAL_BIN is not on PATH; add it before starting a new shell" ;;
 esac
 
-install_nvim_config() {
-  target=$SCRIPT_DIR/nvim
-  destination=$HOME/.config/nvim
-
-  if [ -L "$destination" ] && [ "$(readlink "$destination")" = "$target" ]; then
-    return
-  fi
-
-  if [ -e "$destination" ] || [ -L "$destination" ]; then
-    backup=$HOME/.config/nvim.bak
-    if [ -e "$backup" ] || [ -L "$backup" ]; then
-      die "$destination conflicts with this setup and $backup already exists"
-    fi
-    confirm "Move existing $destination to $backup?" || die "Neovim configuration was not changed"
-    mv "$destination" "$backup"
-  fi
-
-  mkdir -p "$HOME/.config"
-  ln -s "$target" "$destination"
+install_herdr() {
+  source=$SCRIPT_DIR/herdr
+  [ -x "$source" ] || return 0
+  temporary=$LOCAL_BIN/.herdr.$$
+  trap 'rm -f "$temporary"' 0 1 2 15
+  cp "$source" "$temporary"
+  chmod 755 "$temporary"
+  "$temporary" --version >/dev/null
+  mv "$temporary" "$LOCAL_BIN/herdr"
+  trap - 0 1 2 15
 }
 
-install_vimrc() {
-  target=$SCRIPT_DIR/nvim/vimrc
-  destination=$HOME/.vimrc
-  backup=$HOME/.vimrc.bak
-
-  if [ -L "$destination" ] && [ "$(readlink "$destination")" = "$target" ]; then
-    return
-  fi
-
-  if [ -e "$destination" ] || [ -L "$destination" ]; then
-    [ -f "$destination" ] || die "$destination is not a readable file"
-    if [ -e "$backup" ] || [ -L "$backup" ]; then
-      if [ ! -f "$backup" ] || ! cmp -s "$destination" "$backup"; then
-        die "$destination and $backup differ; resolve them manually"
-      fi
-    else
-      confirm "Copy existing $destination to $backup and install the shared Vimrc?" ||
-        die "Vim configuration was not changed"
-      cp -p "$destination" "$backup"
-      cmp -s "$destination" "$backup" || die "failed to verify $backup"
-    fi
-    rm -f "$destination"
-  fi
-
-  ln -s "$target" "$destination"
-}
-
-install_ghostty_config() {
-  [ "$OS" = Darwin ] || die "--ghostty is only supported on macOS"
-  target=$SCRIPT_DIR/ghostty/config
-  config_dir=$HOME/Library/Application\ Support/com.mitchellh.ghostty
-  destination=$config_dir/config
-  backup=$config_dir/config.bak
-
+validate_ghostty_config() {
+  [ "$OS" = Darwin ] || return 0
+  target=$SCRIPT_DIR/home/Library/Application\ Support/com.mitchellh.ghostty/config
   ghostty=
   if command -v ghostty >/dev/null 2>&1; then
     ghostty=$(command -v ghostty)
@@ -216,31 +164,18 @@ install_ghostty_config() {
   if [ -n "$ghostty" ]; then
     "$ghostty" +validate-config --config-file="$target"
   else
-    warn "Ghostty is not installed; linking configuration without validation"
+    warn "Ghostty is not installed; applying configuration without validation"
   fi
-
-  if [ -L "$destination" ] && [ "$(readlink "$destination")" = "$target" ]; then
-    return
-  fi
-
-  if [ -e "$destination" ] || [ -L "$destination" ]; then
-    if [ -e "$backup" ] || [ -L "$backup" ]; then
-      die "$destination conflicts with this setup and $backup already exists"
-    fi
-    confirm "Move existing Ghostty config to $backup?" || die "Ghostty configuration was not changed"
-    mv "$destination" "$backup"
-  fi
-
-  mkdir -p "$config_dir"
-  ln -s "$target" "$destination"
 }
 
-install_nvim_config
-install_vimrc
-[ "$INSTALL_GHOSTTY" -eq 0 ] || install_ghostty_config
+validate_ghostty_config
+install_herdr
+log "Applying dotfiles with chezmoi"
+"$LOCAL_BIN/chezmoi" --source "$SCRIPT_DIR" apply
+[ ! -x "$LOCAL_BIN/herdr" ] || "$LOCAL_BIN/herdr" config check
 
-log "Synchronizing LazyVim plugins"
-"$LOCAL_BIN/nvim" --headless "+Lazy! sync" +qa
+log "Restoring pinned LazyVim plugins"
+"$LOCAL_BIN/nvim" --headless "+Lazy! restore" +qa
 
 log "Installed $("$LOCAL_BIN/nvim" --version | sed -n '1p')"
-log "Configuration: $HOME/.config/nvim -> $SCRIPT_DIR/nvim"
+log "Dotfiles source: $SCRIPT_DIR"

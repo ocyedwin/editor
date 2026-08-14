@@ -5,6 +5,8 @@
 "aqua:junegunn/fzf" = "latest"
 "aqua:jesseduffield/lazygit" = "latest"
 "aqua:tree-sitter/tree-sitter" = "latest"
+"aqua:twpayne/chezmoi" = "latest"
+hunk = "latest"
 
 # fd's latest release has no macOS x86_64 asset, so build it there.
 rust = { version = "latest", profile = "minimal", os = ["macos/x64"] }

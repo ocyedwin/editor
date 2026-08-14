@@ -7,19 +7,23 @@ that exact working tree to a long-lived machine over SSH.
 ## Local setup
 
 ```sh
-./install.sh --ghostty
+./install.sh
 ```
 
 The first run:
 
-- installs stable editor tools with [mise](https://mise.jdx.dev/),
-- links `nvim/` to `~/.config/nvim`,
-- copies an existing `~/.vimrc` to `~/.vimrc.bak`, then links the tracked
-  `nvim/vimrc` in its place, and
-- optionally links the tracked Ghostty configuration on macOS.
+- installs stable editor tools, including chezmoi, with
+  [mise](https://mise.jdx.dev/), and
+- applies the dotfiles in `home/` with chezmoi. This includes the Herdr user
+  configuration; Ghostty is included only on macOS.
 
-An existing `~/.vimrc.bak` is never overwritten. If it differs from the
-current Vimrc, installation stops for manual resolution.
+The checkout stays the chezmoi source directory. Preview and apply later edits
+from the repository root:
+
+```sh
+chezmoi --source "$PWD" diff
+chezmoi --source "$PWD" apply
+```
 
 VSCodeVim should keep using the shared file:
 
@@ -41,11 +45,16 @@ Neovim.
 ## Remote setup
 
 Deploy the current local checkout, including modified and untracked
-non-ignored files:
+non-ignored files, plus the matching custom Herdr binary from
+`../2026-08-12-herdrdev-herdr/target`:
 
 ```sh
 ./bootstrap.sh workbox
 ```
+
+Bootstrap detects the remote OS and architecture before changing it. If the
+sibling checkout has no matching release build, bootstrap stops with the build
+path it expects. Override discovery with `HERDR_BINARY=/path/to/herdr`.
 
 `workbox` can be any SSH config alias or `user@host`. SSH configuration owns
 ports, keys, and jump hosts. The snapshot is installed at
@@ -92,11 +101,19 @@ selection with the same keys. Insert mode keeps native editor and completion
 bindings; use `dh`, `Esc`, or `Ctrl+[` to return to Normal mode. Neovim also
 retains LazyVim's `s` Flash jump for visible targets.
 
+Hunk 0.18 or newer uses the same navigation direction: `n` / `e` move down / up,
+`Ctrl+N` / `Ctrl+E` select the next / previous hunk, and `N` / `E` page down
+/ up. Arrow, Page Up/Down, and Space bindings remain available.
+
 ## Updating
 
 Tools intentionally follow their latest stable releases. Plugins are pinned
-by `nvim/lazy-lock.json`; update them deliberately with `:Lazy update` and
-commit the resulting lockfile.
+by `home/dot_config/nvim/lazy-lock.json`; update them deliberately with
+`:Lazy update`, then import and commit the resulting lockfile:
+
+```sh
+chezmoi --source "$PWD" re-add ~/.config/nvim/lazy-lock.json
+```
 
 Run the checks with:
 

@@ -1,0 +1,7 @@
+[keybindings]
+"hunk.review.stepDown" = ["n", "down"]
+"hunk.review.stepUp" = ["e", "up"]
+"hunk.review.nextHunk" = "ctrl+n"
+"hunk.review.previousHunk" = "ctrl+e"
+"hunk.review.pageDown" = ["E", "pagedown", "space"]
+"hunk.review.pageUp" = ["N", "pageup", "shift+space"]
