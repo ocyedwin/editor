@@ -44,8 +44,8 @@ Neovim.
 
 ## Remote setup
 
-Deploy the current local checkout, including modified and untracked
-non-ignored files, plus the matching custom Herdr binary from
+Deploy the current local checkout's tracked files, including working-tree
+modifications and staged additions, plus the matching custom Herdr binary from
 `../2026-08-12-herdrdev-herdr/target`:
 
 ```sh
@@ -55,6 +55,10 @@ non-ignored files, plus the matching custom Herdr binary from
 Bootstrap detects the remote OS and architecture before changing it. If the
 sibling checkout has no matching release build, bootstrap stops with the build
 path it expects. Override discovery with `HERDR_BINARY=/path/to/herdr`.
+
+Bootstrap refuses to run while non-ignored untracked files exist, before it
+contacts the remote. Review each new file and either stage it deliberately or
+add it to `.gitignore` first.
 
 `workbox` can be any SSH config alias or `user@host`. SSH configuration owns
 ports, keys, and jump hosts. The snapshot is installed at

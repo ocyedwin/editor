@@ -15,6 +15,16 @@ if [[ ! -t 0 ]]; then
   exit 1
 fi
 
+untracked_found=0
+while IFS= read -r -d '' path; do
+  printf 'error: refusing to deploy untracked file: %q\n' "$path" >&2
+  untracked_found=1
+done < <(git -C "$ROOT" ls-files --others --exclude-standard -z)
+if [[ $untracked_found -ne 0 ]]; then
+  printf 'error: review each file, then git add it or add it to .gitignore\n' >&2
+  exit 1
+fi
+
 commit=$(git -C "$ROOT" rev-parse --short HEAD)
 state=clean
 [[ -z $(git -C "$ROOT" status --porcelain) ]] || state=dirty
@@ -175,7 +185,7 @@ cleanup_temp() {
 trap cleanup_temp EXIT
 trap 'exit 1' HUP INT TERM
 
-git -C "$ROOT" ls-files --cached --others --exclude-standard -z >"$raw_list"
+git -C "$ROOT" ls-files --cached -z >"$raw_list"
 
 while IFS= read -r -d '' path; do
   if [[ -e "$ROOT/$path" || -L "$ROOT/$path" ]]; then

@@ -52,6 +52,35 @@ if command -v shellcheck >/dev/null 2>&1; then
   shellcheck "$ROOT/install.sh" "$ROOT/bootstrap.sh" "$ROOT/test.sh"
 fi
 
+MISE_TEST_HOME=$TEMP_DIR/mise-test-home
+MISE_TEST_BIN=$TEMP_DIR/mise-test-bin
+mkdir -p "$MISE_TEST_HOME" "$MISE_TEST_BIN"
+for command_name in git cc make; do
+  printf '#!/bin/sh\nexit 0\n' >"$MISE_TEST_BIN/$command_name"
+  chmod +x "$MISE_TEST_BIN/$command_name"
+done
+cat >"$MISE_TEST_BIN/curl" <<'EOF'
+#!/bin/sh
+set -eu
+output=
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    -o) output=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "$output" ]
+printf 'tampered mise binary\n' >"$output"
+EOF
+chmod +x "$MISE_TEST_BIN/curl"
+if output=$(HOME="$MISE_TEST_HOME" PATH="$MISE_TEST_BIN:/usr/bin:/bin" \
+  "$ROOT/install.sh" 2>&1); then
+  fail "an unverified mise download was installed"
+fi
+[[ $output == *"checksum verification failed"* ]] ||
+  fail "mise checksum rejection was not explained"
+assert_absent "$MISE_TEST_HOME/.local/bin/mise"
+
 ghostty=
 if command -v ghostty >/dev/null 2>&1; then
   ghostty=$(command -v ghostty)
@@ -138,6 +167,7 @@ ln -s missing-target "$SOURCE/broken-link"
 printf '\nignored-smoke\n' >>"$SOURCE/.gitignore"
 printf 'ignored\n' >"$SOURCE/ignored-smoke"
 rm -f "$SOURCE/delete-me"
+git -C "$SOURCE" add -A
 
 REMOTE_HOME=$TEMP_DIR/remote-home
 REMOTE_BIN=$TEMP_DIR/remote-bin
@@ -253,6 +283,15 @@ export FAKE_REMOTE_BIN=$REMOTE_BIN
 export FAKE_TOOL_ROOT=$TOOL_ROOT
 export FAKE_SSH_LOG=$SSH_LOG
 export HERDR_BINARY=$TOOL_ROOT/herdr-build
+
+printf 'not reviewed\n' >"$SOURCE/pending-file"
+if output=$(PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host 2>&1); then
+  fail "an untracked file was deployed"
+fi
+[[ $output == *"refusing to deploy untracked file: pending-file"* ]] ||
+  fail "untracked-file rejection was not explained"
+assert_absent "$SSH_LOG"
+rm -f "$SOURCE/pending-file"
 
 PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
 

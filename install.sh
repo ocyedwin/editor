@@ -109,12 +109,47 @@ if command -v mise >/dev/null 2>&1; then
 elif [ -x "$LOCAL_BIN/mise" ]; then
   MISE=$LOCAL_BIN/mise
 else
-  log "Installing mise in $LOCAL_BIN"
-  mise_installer=$(mktemp "${TMPDIR:-/tmp}/edwin-mise.XXXXXX")
-  trap 'rm -f "$mise_installer"' 0 1 2 15
-  curl -fsSL https://mise.run -o "$mise_installer"
-  MISE_INSTALL_PATH=$LOCAL_BIN/mise MISE_INSTALL_SKIP_IF_EXISTS=1 sh "$mise_installer"
-  rm -f "$mise_installer"
+  MISE_VERSION=2026.7.13
+  case "$OS/$(uname -m)" in
+    Darwin/arm64|Darwin/aarch64)
+      mise_platform=macos-arm64
+      mise_sha256=ef747f4bd944d7cb4efe1832ec6cd29dfdbc217389122fa37c20d116d90c1eb6
+      ;;
+    Darwin/x86_64)
+      mise_platform=macos-x64
+      mise_sha256=3cd0f468c4c8ba1196d949441cb84eeaebb92b94666ef8caa17602c82421f420
+      ;;
+    Linux/aarch64|Linux/arm64)
+      mise_platform=linux-arm64
+      mise_sha256=f115d1f911b8eed1bdc9d889d94ff6fdaf892131d573b5678914b2bcf14b2965
+      ;;
+    Linux/x86_64)
+      mise_platform=linux-x64
+      mise_sha256=47878bc295922c5f7ba4b7054cc372ce6ae730a1f12b0753c1cda2f04376eee2
+      ;;
+    *) die "mise has no pinned build for $OS/$(uname -m)" ;;
+  esac
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256_command=sha256sum
+  elif command -v shasum >/dev/null 2>&1; then
+    sha256_command='shasum -a 256'
+  else
+    die "sha256sum or shasum is required to verify mise"
+  fi
+
+  log "Installing verified mise $MISE_VERSION in $LOCAL_BIN"
+  mise_download=$(mktemp "${TMPDIR:-/tmp}/edwin-mise.XXXXXX")
+  trap 'rm -f "$mise_download"' 0 1 2 15
+  mise_asset=mise-v$MISE_VERSION-$mise_platform
+  curl -fsSL "https://github.com/jdx/mise/releases/download/v$MISE_VERSION/$mise_asset" -o "$mise_download"
+  # sha256_command is selected only from the two fixed commands above.
+  # shellcheck disable=SC2086
+  mise_actual_sha256=$($sha256_command "$mise_download" | awk '{print $1}')
+  [ "$mise_actual_sha256" = "$mise_sha256" ] ||
+    die "mise $MISE_VERSION checksum verification failed"
+  chmod 755 "$mise_download"
+  mv "$mise_download" "$LOCAL_BIN/mise"
   trap - 0 1 2 15
   MISE=$LOCAL_BIN/mise
 fi
