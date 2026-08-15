@@ -16,38 +16,12 @@ die() {
   exit 1
 }
 
-usage() {
-  cat <<'EOF'
-Usage: ./install.sh
-
-Installs tools, Pi packages, and portable dotfiles.
-EOF
-}
-
-case ${1:-} in
-  '') ;;
-  -h|--help) usage; exit 0 ;;
-  *) usage >&2; die "unknown argument: $1" ;;
-esac
-[ "$#" -le 1 ] || { usage >&2; die "too many arguments"; }
+[ "$#" -eq 0 ] || die "usage: ./install.sh"
 
 case ${HOME:-} in
   /*) [ "$HOME" != "/" ] || die "HOME must identify a user home directory" ;;
   *) die "HOME must be an absolute user home directory" ;;
 esac
-
-confirm() {
-  prompt=$1
-  if ! ( : </dev/tty >/dev/tty ) 2>/dev/null; then
-    die "$prompt (a controlling TTY is required)"
-  fi
-  printf '%s [y/N] ' "$prompt" >/dev/tty
-  IFS= read -r answer </dev/tty || return 1
-  case "$answer" in
-    y|Y|yes|YES|Yes) return 0 ;;
-    *) return 1 ;;
-  esac
-}
 
 OS=$(uname -s)
 
@@ -61,45 +35,8 @@ missing_commands() {
   printf '%s' "$missing"
 }
 
-install_prerequisites() {
-  missing=$1
-  if [ "$OS" = Darwin ]; then
-    command_text="xcode-select --install"
-  else
-    if [ "$(id -u)" -eq 0 ]; then
-      elevate=
-    elif command -v sudo >/dev/null 2>&1; then
-      elevate=sudo
-    else
-      die "missing:$missing; install Git, curl, and a C build toolchain, then rerun"
-    fi
-
-    if command -v apt-get >/dev/null 2>&1; then
-      command_text="$elevate apt-get update && $elevate apt-get install -y git curl ca-certificates build-essential"
-    elif command -v dnf >/dev/null 2>&1; then
-      command_text="$elevate dnf install -y git curl ca-certificates gcc gcc-c++ make"
-    elif command -v yum >/dev/null 2>&1; then
-      command_text="$elevate yum install -y git curl ca-certificates gcc gcc-c++ make"
-    elif command -v pacman >/dev/null 2>&1; then
-      command_text="$elevate pacman -S --needed git curl ca-certificates base-devel"
-    elif command -v zypper >/dev/null 2>&1; then
-      command_text="$elevate zypper install -y git curl ca-certificates gcc gcc-c++ make"
-    else
-      die "missing:$missing; unsupported package manager, install Git, curl, and a C build toolchain"
-    fi
-  fi
-
-  if ! confirm "Missing:$missing. Run: $command_text ?"; then
-    die "prerequisites were not installed; run this command manually: $command_text"
-  fi
-  sh -c "$command_text"
-
-  remaining=$(missing_commands)
-  [ -z "$remaining" ] || die "still missing:$remaining; finish installing prerequisites and rerun"
-}
-
 missing=$(missing_commands)
-[ -z "$missing" ] || install_prerequisites "$missing"
+[ -z "$missing" ] || die "missing:$missing; install these prerequisites and rerun"
 
 LOCAL_BIN=$HOME/.local/bin
 mkdir -p "$LOCAL_BIN"
@@ -159,7 +96,7 @@ log "Installing stable tools with mise"
 "$MISE" trust --yes "$SCRIPT_DIR/mise.toml"
 "$MISE" install --yes --cd "$SCRIPT_DIR"
 
-for binary_name in nvim rg fd fzf lazygit tree-sitter chezmoi hunk node pi; do
+for binary_name in nvim rg lazygit chezmoi hunk node pi; do
   target=$("$MISE" which --cd "$SCRIPT_DIR" "$binary_name")
   [ -x "$target" ] || die "mise did not provide an executable $binary_name"
   link=$LOCAL_BIN/$binary_name
@@ -174,18 +111,6 @@ case ":${PATH:-}:" in
   *":$LOCAL_BIN:"*) ;;
   *) warn "$LOCAL_BIN is not on PATH; add it before starting a new shell" ;;
 esac
-
-install_herdr() {
-  source=$SCRIPT_DIR/herdr
-  [ -x "$source" ] || return 0
-  temporary=$LOCAL_BIN/.herdr.$$
-  trap 'rm -f "$temporary"' 0 1 2 15
-  cp "$source" "$temporary"
-  chmod 755 "$temporary"
-  "$temporary" --version >/dev/null
-  mv "$temporary" "$LOCAL_BIN/herdr"
-  trap - 0 1 2 15
-}
 
 install_skills() {
   skills_remote=git@github.com:ocyedwin/skills.git
@@ -241,7 +166,6 @@ validate_ghostty_config() {
 }
 
 validate_ghostty_config
-install_herdr
 log "Applying dotfiles with chezmoi"
 "$LOCAL_BIN/chezmoi" --source "$SCRIPT_DIR" apply
 [ ! -x "$LOCAL_BIN/herdr" ] || "$LOCAL_BIN/herdr" config check

@@ -143,11 +143,11 @@ valid_snapshot "$stage" || {
   printf 'error: transferred snapshot is incomplete\n' >&2
   exit 1
 }
-[ -x "$stage/herdr" ] || {
+[ -x "$stage/home/dot_local/bin/executable_herdr" ] || {
   printf 'error: transferred snapshot has no custom Herdr binary\n' >&2
   exit 1
 }
-"$stage/herdr" --version >/dev/null 2>&1 || {
+"$stage/home/dot_local/bin/executable_herdr" --version >/dev/null 2>&1 || {
   printf 'error: transferred Herdr binary cannot run on this target\n' >&2
   exit 1
 }
@@ -175,27 +175,21 @@ trap - 1 2 15
 REMOTE
 
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/edwin-editor.XXXXXX")
-raw_list=$temp_dir/git-files
 file_list=$temp_dir/archive-files
 archive=$temp_dir/editor.tar
-payload=$temp_dir/payload
-cleanup_temp() {
-  rm -rf "$temp_dir"
-}
-trap cleanup_temp EXIT
+trap 'rm -rf "$temp_dir"' EXIT
 trap 'exit 1' HUP INT TERM
 
-git -C "$ROOT" ls-files --cached -z >"$raw_list"
-
-while IFS= read -r -d '' path; do
-  if [[ -e "$ROOT/$path" || -L "$ROOT/$path" ]]; then
-    if [[ -d "$ROOT/$path" && ! -L "$ROOT/$path" ]]; then
-      printf 'error: directory or submodule cannot be deployed as a file: %s\n' "$path" >&2
-      exit 1
+git -C "$ROOT" ls-files --cached -z |
+  while IFS= read -r -d '' path; do
+    if [[ -e "$ROOT/$path" || -L "$ROOT/$path" ]]; then
+      if [[ -d "$ROOT/$path" && ! -L "$ROOT/$path" ]]; then
+        printf 'error: directory or submodule cannot be deployed as a file: %s\n' "$path" >&2
+        exit 1
+      fi
+      printf '%s\0' "$path"
     fi
-    printf '%s\0' "$path"
-  fi
-done <"$raw_list" >"$file_list"
+  done >"$file_list"
 
 tar_options=(--null --no-recursion --no-xattrs --no-acls)
 if [[ $(uname -s) == Darwin ]]; then
@@ -203,10 +197,10 @@ if [[ $(uname -s) == Darwin ]]; then
 fi
 
 COPYFILE_DISABLE=1 tar -C "$ROOT" "${tar_options[@]}" -T "$file_list" -cf "$archive"
-mkdir "$payload"
-cp "$HERDR_BINARY" "$payload/herdr"
-chmod 755 "$payload/herdr"
-COPYFILE_DISABLE=1 tar -C "$payload" -rf "$archive" herdr
+mkdir -p "$temp_dir/home/dot_local/bin"
+cp "$HERDR_BINARY" "$temp_dir/home/dot_local/bin/executable_herdr"
+chmod 755 "$temp_dir/home/dot_local/bin/executable_herdr"
+COPYFILE_DISABLE=1 tar -C "$temp_dir" -rf "$archive" home/dot_local/bin/executable_herdr
 
 # Never allocate a TTY while streaming a binary archive.
 # The static command is intentionally interpreted by the remote shell.

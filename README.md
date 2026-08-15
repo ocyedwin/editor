@@ -11,6 +11,8 @@ SSH.
 ./install.sh
 ```
 
+Requires `git`, `curl`, `cc`, and `make`.
+
 The first run:
 
 - installs stable tools, including Node 24, Pi 0.84.2, and chezmoi, with

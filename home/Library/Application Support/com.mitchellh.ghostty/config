@@ -1,2 +1,2 @@
 # Preserve Ghostty defaults while adding remote terminfo and environment setup.
-shell-integration-features = cursor,no-sudo,title,ssh-env,ssh-terminfo,path
+shell-integration-features = ssh-env,ssh-terminfo

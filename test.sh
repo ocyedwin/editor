@@ -92,19 +92,21 @@ if [[ -n $ghostty ]]; then
 fi
 
 chezmoi=
+CHEZMOI_HOME=$TEMP_DIR/chezmoi-home
 if command -v chezmoi >/dev/null 2>&1; then
   chezmoi=$(command -v chezmoi)
 elif [[ -x $HOME/.local/bin/chezmoi ]]; then
   chezmoi=$HOME/.local/bin/chezmoi
 fi
 if [[ -n $chezmoi ]]; then
-  CHEZMOI_HOME=$TEMP_DIR/chezmoi-home
-  mkdir -p "$CHEZMOI_HOME"
+  mkdir -p "$CHEZMOI_HOME/.config/nvim/lua/plugins"
+  printf 'stale\n' >"$CHEZMOI_HOME/.config/nvim/lua/plugins/editor.lua"
   "$chezmoi" --source "$ROOT" --destination "$CHEZMOI_HOME" apply
   "$chezmoi" --source "$ROOT" --destination "$CHEZMOI_HOME" verify
   assert_file "$CHEZMOI_HOME/.config/nvim/init.lua"
   assert_file "$CHEZMOI_HOME/.config/hunk/config.toml"
   assert_file "$CHEZMOI_HOME/.config/herdr/config.toml"
+  assert_absent "$CHEZMOI_HOME/.config/nvim/lua/plugins/editor.lua"
   [[ -L $CHEZMOI_HOME/.vimrc ]] || fail "chezmoi did not create the Vimrc symlink"
   [[ -L $CHEZMOI_HOME/.codex/AGENTS.md ]] || fail "chezmoi did not link Codex instructions"
   [[ $(readlink "$CHEZMOI_HOME/.codex/AGENTS.md") == "$ROOT/home/.chezmoitemplates/AGENTS.md" ]] ||
@@ -120,17 +122,17 @@ if command -v nvim >/dev/null 2>&1; then
 elif [[ -x $HOME/.local/bin/nvim ]]; then
   nvim=$HOME/.local/bin/nvim
 fi
-if [[ -n $nvim && -s $ROOT/home/dot_config/nvim/lazy-lock.json ]]; then
-  env -u SSH_CONNECTION -u SSH_TTY "$nvim" --headless \
+if [[ -n $nvim && -d $CHEZMOI_HOME/.config/nvim && -s $ROOT/home/dot_config/nvim/lazy-lock.json ]]; then
+  XDG_CONFIG_HOME="$CHEZMOI_HOME/.config" env -u SSH_CONNECTION -u SSH_TTY "$nvim" --headless \
     "+lua vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy' })" \
     "+lua local ok = vim.opt.number:get() and not vim.opt.relativenumber:get() and vim.g.autoformat == false and vim.g.snacks_animate == false; if not ok then os.exit(1) end" \
     "+lua local expected = { n = 'j', e = 'k', N = '<C-D>', E = '<C-U>', k = 'n', K = 'N', ['<C-n>'] = '}', ['<C-e>'] = '{' }; for _, mode in ipairs({ 'n', 'x' }) do for lhs, rhs in pairs(expected) do if vim.fn.maparg(lhs, mode) ~= rhs then os.exit(1) end end end; for _, lhs in ipairs({ '<C-h>', '<C-n>', '<C-e>', '<C-i>' }) do if vim.fn.maparg(lhs, 'i') ~= '' then os.exit(1) end end; if vim.fn.maparg('dh', 'i') ~= '<Esc>' or vim.fn.maparg('<C-h>', 'n') ~= '<C-W>h' or vim.fn.maparg('<C-i>', 'n') ~= '' or vim.fn.maparg('e', 'o') ~= '' or vim.fn.maparg('n', 'o') == 'j' or vim.fn.maparg('k', 'o') ~= '' then os.exit(1) end" \
     "+lua vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'target', 'two', '', 'target', 'four', '', 'target' }); local function press(keys) vim.fn.feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), 'xt') end; vim.api.nvim_win_set_cursor(0, { 1, 0 }); press('n'); if vim.api.nvim_win_get_cursor(0)[1] ~= 2 then os.exit(1) end; vim.api.nvim_win_set_cursor(0, { 1, 0 }); press('vn'); if vim.fn.mode() ~= 'v' or vim.api.nvim_win_get_cursor(0)[1] ~= 2 or vim.fn.line('v') ~= 1 then os.exit(1) end; press('<Esc>'); press('2n'); if vim.api.nvim_win_get_cursor(0)[1] ~= 4 then os.exit(1) end; press('<C-n>'); if vim.api.nvim_win_get_cursor(0)[1] ~= 6 then os.exit(1) end; press('<C-e>'); if vim.api.nvim_win_get_cursor(0)[1] ~= 3 then os.exit(1) end; vim.fn.setreg('/', 'target'); vim.v.searchforward = 1; vim.api.nvim_win_set_cursor(0, { 1, 0 }); press('k'); if vim.api.nvim_win_get_cursor(0)[1] ~= 4 then os.exit(1) end; press('K'); if vim.api.nvim_win_get_cursor(0)[1] ~= 1 then os.exit(1) end; local lines = {}; for i = 1, 100 do lines[i] = tostring(i) end; vim.api.nvim_buf_set_lines(0, 0, -1, false, lines); vim.api.nvim_win_set_cursor(0, { 50, 0 }); press('N'); local down = vim.api.nvim_win_get_cursor(0)[1]; press('E'); if down <= 50 or vim.api.nvim_win_get_cursor(0)[1] >= down then os.exit(1) end" \
-    "+lua local config = require('lazy.core.config'); local plugin = require('lazy.core.plugin'); if not config.plugins['neo-tree.nvim'] then os.exit(1) end; if plugin.values(config.plugins['snacks.nvim'], 'opts', false).scroll.enabled ~= false then os.exit(1) end; local blink = plugin.values(config.plugins['blink.cmp'], 'opts', false).keymap; if blink.preset ~= 'enter' or blink['<C-e>'] == false or blink['<C-n>'] == false or blink['<Tab>'] == false then os.exit(1) end" \
+    "+lua local config = require('lazy.core.config'); local plugin = require('lazy.core.plugin'); if config.plugins['neo-tree.nvim'] then os.exit(1) end; local blink = plugin.values(config.plugins['blink.cmp'], 'opts', false).keymap; if blink.preset ~= 'enter' or blink['<C-e>'] == false or blink['<C-n>'] == false or blink['<Tab>'] == false then os.exit(1) end" \
     "+lua if not vim.tbl_contains(vim.opt.clipboard:get(), 'unnamedplus') then os.exit(1) end" \
     +qa! >/dev/null 2>&1
 
-  SSH_CONNECTION='127.0.0.1 1 127.0.0.1 2' "$nvim" --headless \
+  XDG_CONFIG_HOME="$CHEZMOI_HOME/.config" SSH_CONNECTION='127.0.0.1 1 127.0.0.1 2' "$nvim" --headless \
     "+lua vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy' })" \
     "+lua if vim.g.clipboard ~= 'osc52' or #vim.opt.clipboard:get() ~= 0 then os.exit(1) end" \
     +qa >/dev/null 2>&1
@@ -159,6 +161,7 @@ chmod +x "$SOURCE/install.sh" "$SOURCE/bootstrap.sh" "$SOURCE/test.sh"
 git -C "$SOURCE" init -q
 git -C "$SOURCE" config user.name test
 git -C "$SOURCE" config user.email test@example.invalid
+git -C "$SOURCE" config commit.gpgsign false
 printf 'this tracked file will be deleted\n' >"$SOURCE/delete-me"
 printf 'version 1\n' >"$SOURCE/deployment-version"
 git -C "$SOURCE" add -A
@@ -188,7 +191,15 @@ for command_name in curl cc make; do
   chmod +x "$REMOTE_BIN/$command_name"
 done
 
-cat >"$TOOL_ROOT/skills-check.sh" <<'EOF'
+SKILLS_SOURCE=$TEMP_DIR/skills-source
+SKILLS_REMOTE=$TEMP_DIR/skills.git
+mkdir "$SKILLS_SOURCE"
+git -C "$SKILLS_SOURCE" init -q -b main
+git -C "$SKILLS_SOURCE" config user.name test
+git -C "$SKILLS_SOURCE" config user.email test@example.invalid
+git -C "$SKILLS_SOURCE" config commit.gpgsign false
+
+cat >"$SKILLS_SOURCE/check.sh" <<'EOF'
 #!/bin/sh
 set -eu
 [ "${1:-}" = --staged ]
@@ -196,63 +207,26 @@ requested_root=$(CDPATH='' cd -- "${2:-}" && pwd -P)
 [ "$requested_root" = "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)" ]
 printf 'validate\n' >>"$FAKE_SKILLS_LOG"
 EOF
-chmod +x "$TOOL_ROOT/skills-check.sh"
 
-cat >"$TOOL_ROOT/skills-sync.sh" <<'EOF'
+cat >"$SKILLS_SOURCE/sync.sh" <<'EOF'
 #!/bin/sh
 set -eu
-repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
-target=$repo_dir/skills/test-skill
-mkdir -p "$target" "$HOME/.agents/skills" "$HOME/.claude/skills"
-printf '%s\n' '---' 'name: test-skill' 'description: Test skill.' '---' >"$target/SKILL.md"
-for skills_dir in "$HOME/.agents/skills" "$HOME/.claude/skills"; do
-  link=$skills_dir/test-skill
-  if [ -e "$link" ] && [ ! -L "$link" ]; then
-    exit 1
-  fi
-  ln -sfn "$target" "$link"
-done
 printf 'sync\n' >>"$FAKE_SKILLS_LOG"
 EOF
-chmod +x "$TOOL_ROOT/skills-sync.sh"
-
-cat >"$REMOTE_BIN/git" <<'EOF'
+chmod +x "$SKILLS_SOURCE/check.sh" "$SKILLS_SOURCE/sync.sh"
+git -C "$SKILLS_SOURCE" add check.sh sync.sh
+git -C "$SKILLS_SOURCE" commit -qm fixture
+git clone -q --bare "$SKILLS_SOURCE" "$SKILLS_REMOTE"
+cat >"$REMOTE_BIN/skills-ssh" <<'EOF'
 #!/bin/sh
-set -eu
-case ${1:-} in
-  clone)
-    [ "${2:-}" = --recurse-submodules ]
-    [ "${3:-}" = git@github.com:ocyedwin/skills.git ]
-    [ "${FAKE_SKILLS_CLONE_FAIL:-0}" -eq 0 ] || exit 128
-    destination=${4:-}
-    [ -n "$destination" ]
-    mkdir -p "$destination/.git"
-    printf '%s\n' "$3" >"$destination/.git/fake-origin"
-    cp "$FAKE_TOOL_ROOT/skills-check.sh" "$destination/check.sh"
-    cp "$FAKE_TOOL_ROOT/skills-sync.sh" "$destination/sync.sh"
-    chmod +x "$destination/check.sh" "$destination/sync.sh"
-    printf 'clone\n' >>"$FAKE_SKILLS_LOG"
-    ;;
-  -C)
-    repository=${2:-}
-    shift 2
-    case "$1 ${2:-} ${3:-}" in
-      'rev-parse --show-toplevel ')
-        CDPATH='' cd -- "$repository"
-        pwd -P
-        ;;
-      'remote get-url origin')
-        sed -n '1p' "$repository/.git/fake-origin"
-        ;;
-      *) exit 64 ;;
-    esac
-    ;;
-  *) exit 64 ;;
-esac
+exec git-upload-pack "$FAKE_SKILLS_REMOTE"
 EOF
-chmod +x "$REMOTE_BIN/git"
+chmod +x "$REMOTE_BIN/skills-ssh"
+export FAKE_SKILLS_REMOTE=$SKILLS_REMOTE
+export GIT_SSH_COMMAND=$REMOTE_BIN/skills-ssh
+export GIT_SSH_VARIANT=ssh
 
-for binary_name in rg fd fzf lazygit tree-sitter hunk node; do
+for binary_name in rg lazygit hunk node; do
   printf '#!/bin/sh\nexit 0\n' >"$TOOL_ROOT/$binary_name"
   chmod +x "$TOOL_ROOT/$binary_name"
 done
@@ -296,6 +270,8 @@ mkdir -p "$HOME/.config" "$HOME/.codex" "$HOME/.pi/agent"
 cp -R "$source_dir/home/dot_config/nvim" "$HOME/.config/nvim"
 cp -R "$source_dir/home/dot_config/hunk" "$HOME/.config/hunk"
 cp -R "$source_dir/home/dot_config/herdr" "$HOME/.config/herdr"
+cp "$source_dir/home/dot_local/bin/executable_herdr" "$HOME/.local/bin/herdr"
+chmod 755 "$HOME/.local/bin/herdr"
 rm -f "$HOME/.vimrc" "$HOME/.codex/AGENTS.md" "$HOME/.pi/agent/AGENTS.md"
 ln -s .config/nvim/vimrc "$HOME/.vimrc"
 ln -s "$source_dir/home/.chezmoitemplates/AGENTS.md" "$HOME/.codex/AGENTS.md"
@@ -385,9 +361,6 @@ export FAKE_SSH_LOG=$SSH_LOG
 export FAKE_SKILLS_LOG=$SKILLS_LOG
 export HERDR_BINARY=$TOOL_ROOT/herdr-build
 
-mkdir -p "$REMOTE_HOME/.agents/skills/unrelated-skill"
-printf '{"fixture":true}\n' >"$REMOTE_HOME/.agents/.skill-lock.json"
-
 printf 'not reviewed\n' >"$SOURCE/pending-file"
 if output=$(PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host 2>&1); then
   fail "an untracked file was deployed"
@@ -398,14 +371,15 @@ assert_absent "$SSH_LOG"
 rm -f "$SOURCE/pending-file"
 
 PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
-[[ $(grep -c '^clone$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was not cloned once"
+git -C "$REMOTE_HOME/.local/share/edwin-skills" rev-parse --is-inside-work-tree >/dev/null ||
+  fail "skills checkout was not cloned"
 [[ $(grep -c '^validate$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was not validated once"
 [[ $(grep -c '^sync$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was not synchronized"
 
 DEPLOY=$REMOTE_HOME/.local/share/edwin-editor
 DEPLOY_REAL=$(CDPATH='' cd -- "$DEPLOY" && pwd -P)
 assert_file "$DEPLOY/install.sh"
-[[ -x $DEPLOY/herdr ]] || fail "custom Herdr binary was not deployed"
+[[ -x $DEPLOY/home/dot_local/bin/executable_herdr ]] || fail "custom Herdr binary was not deployed"
 assert_file "$DEPLOY/untracked file"
 assert_file "$DEPLOY/-leading-name"
 assert_file "$DEPLOY/$newline_name"
@@ -433,17 +407,12 @@ assert_file "$REMOTE_HOME/.config/herdr/config.toml"
 assert_absent "$REMOTE_HOME/.local/bin/npm"
 [[ -L $REMOTE_HOME/.local/bin/pi ]] || fail "Pi binary was not linked"
 grep -Fx 'git:github.com/ocyedwin/pi-langfuse' "$REMOTE_HOME/.pi/agent/installed-package" >/dev/null
-[[ -L $REMOTE_HOME/.agents/skills/test-skill ]] || fail "shared agent skill was not linked"
-[[ -L $REMOTE_HOME/.claude/skills/test-skill ]] || fail "Claude skill was not linked"
-assert_file "$REMOTE_HOME/.agents/.skill-lock.json"
-[[ -d $REMOTE_HOME/.agents/skills/unrelated-skill ]] || fail "unrelated skill was not preserved"
 [[ $(sed -n '1p' "$SSH_LOG") == 'none fake-host' ]] || fail "target platform was not inspected"
 [[ $(sed -n '2p' "$SSH_LOG") == '-T fake-host' ]] || fail "archive SSH did not disable TTY"
 [[ $(sed -n '3p' "$SSH_LOG") == '-t fake-host' ]] || fail "installer SSH did not request TTY"
 
 printf 'version 2\n' >"$SOURCE/deployment-version"
 PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
-[[ $(grep -c '^clone$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was cloned more than once"
 [[ $(grep -c '^validate$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was revalidated as a new clone"
 [[ $(grep -c '^sync$' "$SKILLS_LOG") -eq 2 ]] || fail "skills checkout was not resynchronized"
 PREVIOUS=$REMOTE_HOME/.local/share/edwin-editor.previous
@@ -500,8 +469,8 @@ grep -Fx 'version 3' "$DEPLOY/deployment-version" >/dev/null
 grep -Fx 'version 2' "$PREVIOUS/deployment-version" >/dev/null
 assert_absent "$REMOTE_HOME/.local/share/edwin-editor.previous.previous"
 
-printf '%s\n' git@github.com:someone-else/skills.git \
-  >"$REMOTE_HOME/.local/share/edwin-skills/.git/fake-origin"
+git -C "$REMOTE_HOME/.local/share/edwin-skills" remote set-url origin \
+  git@github.com:someone-else/skills.git
 if output=$(HOME="$REMOTE_HOME" PATH="$REMOTE_BIN:/usr/bin:/bin" \
   FAKE_TOOL_ROOT="$TOOL_ROOT" FAKE_SKILLS_LOG="$SKILLS_LOG" \
   "$DEPLOY/install.sh" 2>&1); then
@@ -511,9 +480,10 @@ fi
 
 NO_ACCESS_HOME=$TEMP_DIR/no-access-home
 mkdir -p "$NO_ACCESS_HOME"
+mv "$SKILLS_REMOTE" "$SKILLS_REMOTE.unavailable"
 if output=$(HOME="$NO_ACCESS_HOME" PATH="$REMOTE_BIN:/usr/bin:/bin" \
   FAKE_TOOL_ROOT="$TOOL_ROOT" FAKE_SKILLS_LOG="$SKILLS_LOG" \
-  FAKE_SKILLS_CLONE_FAIL=1 "$DEPLOY/install.sh" 2>&1); then
+  "$DEPLOY/install.sh" 2>&1); then
   fail "a private skills clone failure was accepted"
 fi
 [[ $output == *"configure GitHub SSH access and rerun"* ]] ||
