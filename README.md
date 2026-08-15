@@ -15,6 +15,7 @@ The first run:
 
 - installs stable tools, including Node 24, Pi 0.84.2, and chezmoi, with
   [mise](https://mise.jdx.dev/),
+- clones and synchronizes the private `ocyedwin/skills` repository,
 - installs `git:github.com/ocyedwin/pi-langfuse` globally with Pi, and
 - applies the dotfiles in `home/` with chezmoi. This includes the Herdr user
   configuration; Ghostty is included only on macOS.
@@ -32,6 +33,27 @@ to `home/.chezmoitemplates/AGENTS.md` in this checkout. The shared file starts
 empty; edit it here, then start a new Codex session or run `/reload` in Pi.
 Rerun `chezmoi apply` if this checkout moves. Remote changes take effect after
 the next `bootstrap.sh` deployment.
+
+Personal skills live in a separate checkout at
+`~/.local/share/edwin-skills`. Its synchronizer exposes each managed skill
+under `~/.agents/skills`, which both
+[Codex](https://learn.chatgpt.com/docs/build-skills) and
+[Pi](https://pi.dev/docs/latest/skills) discover natively, and keeps the
+existing Claude Code links under `~/.claude/skills`. It preserves unrelated
+entries such as `~/.agents/.skill-lock.json` and refuses to replace a real
+skill directory.
+
+The private checkout requires non-interactive GitHub SSH access on every
+machine. Verify it before installing:
+
+```sh
+git ls-remote git@github.com:ocyedwin/skills.git HEAD
+```
+
+The first successful sync installs a five-minute LaunchAgent on macOS or
+systemd user timer on Linux. Validated fast-forward commits to `skills/main`
+are therefore production deployments. Codex normally detects changes
+automatically; use `/reload` in Pi after a skill changes.
 
 Each `install.sh` run reconciles `pi-langfuse` with its `main` branch. Between
 installs, update it from this checkout with `mise exec -- pi update

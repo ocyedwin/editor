@@ -187,6 +187,43 @@ install_herdr() {
   trap - 0 1 2 15
 }
 
+install_skills() {
+  skills_remote=git@github.com:ocyedwin/skills.git
+  skills_dir=$HOME/.local/share/edwin-skills
+
+  if [ -e "$skills_dir" ] || [ -L "$skills_dir" ]; then
+    [ -d "$skills_dir" ] && [ ! -L "$skills_dir" ] ||
+      die "$skills_dir exists and is not a real directory"
+    skills_root=$(git -C "$skills_dir" rev-parse --show-toplevel 2>/dev/null) ||
+      die "$skills_dir is not a Git checkout"
+    skills_root=$(CDPATH='' cd -- "$skills_root" && pwd -P)
+    [ "$skills_root" = "$(CDPATH='' cd -- "$skills_dir" && pwd -P)" ] ||
+      die "$skills_dir is not the skills checkout root"
+    actual_remote=$(git -C "$skills_dir" remote get-url origin 2>/dev/null) ||
+      die "$skills_dir has no origin remote"
+    [ "$actual_remote" = "$skills_remote" ] ||
+      die "$skills_dir has unexpected origin: $actual_remote"
+  else
+    mkdir -p "$HOME/.local/share"
+    skills_temporary=$(mktemp -d "$HOME/.local/share/.edwin-skills.XXXXXX")
+    trap 'rm -rf "$skills_temporary"' 0 1 2 15
+    log "Cloning personal skills into $skills_dir"
+    git clone --recurse-submodules "$skills_remote" "$skills_temporary" ||
+      die "cannot read $skills_remote; configure GitHub SSH access and rerun"
+    [ -x "$skills_temporary/check.sh" ] ||
+      die "the skills checkout has no executable check.sh"
+    "$skills_temporary/check.sh" --staged "$skills_temporary"
+    mv "$skills_temporary" "$skills_dir"
+    trap - 0 1 2 15
+  fi
+
+  [ -x "$skills_dir/sync.sh" ] ||
+    die "the skills checkout has no executable sync.sh"
+  log "Synchronizing personal agent skills"
+  "$skills_dir/sync.sh" ||
+    die "skill synchronization failed; verify the checkout and GitHub SSH access"
+}
+
 validate_ghostty_config() {
   [ "$OS" = Darwin ] || return 0
   target=$SCRIPT_DIR/home/Library/Application\ Support/com.mitchellh.ghostty/config
@@ -208,6 +245,8 @@ install_herdr
 log "Applying dotfiles with chezmoi"
 "$LOCAL_BIN/chezmoi" --source "$SCRIPT_DIR" apply
 [ ! -x "$LOCAL_BIN/herdr" ] || "$LOCAL_BIN/herdr" config check
+
+install_skills
 
 log "Installing Pi packages"
 "$MISE" exec --cd "$SCRIPT_DIR" -- pi install git:github.com/ocyedwin/pi-langfuse

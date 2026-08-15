@@ -180,12 +180,77 @@ REMOTE_BIN=$TEMP_DIR/remote-bin
 TOOL_ROOT=$TEMP_DIR/tools
 LOCAL_BIN=$TEMP_DIR/local-bin
 SSH_LOG=$TEMP_DIR/ssh.log
+SKILLS_LOG=$TEMP_DIR/skills.log
 mkdir -p "$REMOTE_HOME" "$REMOTE_BIN" "$TOOL_ROOT" "$LOCAL_BIN"
 
-for command_name in git curl cc make; do
+for command_name in curl cc make; do
   printf '#!/bin/sh\nexit 0\n' >"$REMOTE_BIN/$command_name"
   chmod +x "$REMOTE_BIN/$command_name"
 done
+
+cat >"$TOOL_ROOT/skills-check.sh" <<'EOF'
+#!/bin/sh
+set -eu
+[ "${1:-}" = --staged ]
+requested_root=$(CDPATH='' cd -- "${2:-}" && pwd -P)
+[ "$requested_root" = "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)" ]
+printf 'validate\n' >>"$FAKE_SKILLS_LOG"
+EOF
+chmod +x "$TOOL_ROOT/skills-check.sh"
+
+cat >"$TOOL_ROOT/skills-sync.sh" <<'EOF'
+#!/bin/sh
+set -eu
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+target=$repo_dir/skills/test-skill
+mkdir -p "$target" "$HOME/.agents/skills" "$HOME/.claude/skills"
+printf '%s\n' '---' 'name: test-skill' 'description: Test skill.' '---' >"$target/SKILL.md"
+for skills_dir in "$HOME/.agents/skills" "$HOME/.claude/skills"; do
+  link=$skills_dir/test-skill
+  if [ -e "$link" ] && [ ! -L "$link" ]; then
+    exit 1
+  fi
+  ln -sfn "$target" "$link"
+done
+printf 'sync\n' >>"$FAKE_SKILLS_LOG"
+EOF
+chmod +x "$TOOL_ROOT/skills-sync.sh"
+
+cat >"$REMOTE_BIN/git" <<'EOF'
+#!/bin/sh
+set -eu
+case ${1:-} in
+  clone)
+    [ "${2:-}" = --recurse-submodules ]
+    [ "${3:-}" = git@github.com:ocyedwin/skills.git ]
+    [ "${FAKE_SKILLS_CLONE_FAIL:-0}" -eq 0 ] || exit 128
+    destination=${4:-}
+    [ -n "$destination" ]
+    mkdir -p "$destination/.git"
+    printf '%s\n' "$3" >"$destination/.git/fake-origin"
+    cp "$FAKE_TOOL_ROOT/skills-check.sh" "$destination/check.sh"
+    cp "$FAKE_TOOL_ROOT/skills-sync.sh" "$destination/sync.sh"
+    chmod +x "$destination/check.sh" "$destination/sync.sh"
+    printf 'clone\n' >>"$FAKE_SKILLS_LOG"
+    ;;
+  -C)
+    repository=${2:-}
+    shift 2
+    case "$1 ${2:-} ${3:-}" in
+      'rev-parse --show-toplevel ')
+        CDPATH='' cd -- "$repository"
+        pwd -P
+        ;;
+      'remote get-url origin')
+        sed -n '1p' "$repository/.git/fake-origin"
+        ;;
+      *) exit 64 ;;
+    esac
+    ;;
+  *) exit 64 ;;
+esac
+EOF
+chmod +x "$REMOTE_BIN/git"
 
 for binary_name in rg fd fzf lazygit tree-sitter hunk node; do
   printf '#!/bin/sh\nexit 0\n' >"$TOOL_ROOT/$binary_name"
@@ -308,6 +373,7 @@ unset XDG_DATA_HOME
 HOME=$FAKE_REMOTE_HOME \
 PATH="$FAKE_REMOTE_BIN:/usr/bin:/bin" \
 FAKE_TOOL_ROOT=$FAKE_TOOL_ROOT \
+FAKE_SKILLS_LOG=$FAKE_SKILLS_LOG \
   /bin/sh -c "$command_text"
 EOF
 chmod +x "$LOCAL_BIN/ssh"
@@ -316,7 +382,11 @@ export FAKE_REMOTE_HOME=$REMOTE_HOME
 export FAKE_REMOTE_BIN=$REMOTE_BIN
 export FAKE_TOOL_ROOT=$TOOL_ROOT
 export FAKE_SSH_LOG=$SSH_LOG
+export FAKE_SKILLS_LOG=$SKILLS_LOG
 export HERDR_BINARY=$TOOL_ROOT/herdr-build
+
+mkdir -p "$REMOTE_HOME/.agents/skills/unrelated-skill"
+printf '{"fixture":true}\n' >"$REMOTE_HOME/.agents/.skill-lock.json"
 
 printf 'not reviewed\n' >"$SOURCE/pending-file"
 if output=$(PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host 2>&1); then
@@ -328,6 +398,9 @@ assert_absent "$SSH_LOG"
 rm -f "$SOURCE/pending-file"
 
 PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
+[[ $(grep -c '^clone$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was not cloned once"
+[[ $(grep -c '^validate$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was not validated once"
+[[ $(grep -c '^sync$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was not synchronized"
 
 DEPLOY=$REMOTE_HOME/.local/share/edwin-editor
 DEPLOY_REAL=$(CDPATH='' cd -- "$DEPLOY" && pwd -P)
@@ -360,12 +433,19 @@ assert_file "$REMOTE_HOME/.config/herdr/config.toml"
 assert_absent "$REMOTE_HOME/.local/bin/npm"
 [[ -L $REMOTE_HOME/.local/bin/pi ]] || fail "Pi binary was not linked"
 grep -Fx 'git:github.com/ocyedwin/pi-langfuse' "$REMOTE_HOME/.pi/agent/installed-package" >/dev/null
+[[ -L $REMOTE_HOME/.agents/skills/test-skill ]] || fail "shared agent skill was not linked"
+[[ -L $REMOTE_HOME/.claude/skills/test-skill ]] || fail "Claude skill was not linked"
+assert_file "$REMOTE_HOME/.agents/.skill-lock.json"
+[[ -d $REMOTE_HOME/.agents/skills/unrelated-skill ]] || fail "unrelated skill was not preserved"
 [[ $(sed -n '1p' "$SSH_LOG") == 'none fake-host' ]] || fail "target platform was not inspected"
 [[ $(sed -n '2p' "$SSH_LOG") == '-T fake-host' ]] || fail "archive SSH did not disable TTY"
 [[ $(sed -n '3p' "$SSH_LOG") == '-t fake-host' ]] || fail "installer SSH did not request TTY"
 
 printf 'version 2\n' >"$SOURCE/deployment-version"
 PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
+[[ $(grep -c '^clone$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was cloned more than once"
+[[ $(grep -c '^validate$' "$SKILLS_LOG") -eq 1 ]] || fail "skills checkout was revalidated as a new clone"
+[[ $(grep -c '^sync$' "$SKILLS_LOG") -eq 2 ]] || fail "skills checkout was not resynchronized"
 PREVIOUS=$REMOTE_HOME/.local/share/edwin-editor.previous
 assert_file "$PREVIOUS/install.sh"
 grep -Fx 'version 2' "$DEPLOY/deployment-version" >/dev/null
@@ -419,5 +499,37 @@ unset FAKE_INSTALL_STATUS
 grep -Fx 'version 3' "$DEPLOY/deployment-version" >/dev/null
 grep -Fx 'version 2' "$PREVIOUS/deployment-version" >/dev/null
 assert_absent "$REMOTE_HOME/.local/share/edwin-editor.previous.previous"
+
+printf '%s\n' git@github.com:someone-else/skills.git \
+  >"$REMOTE_HOME/.local/share/edwin-skills/.git/fake-origin"
+if output=$(HOME="$REMOTE_HOME" PATH="$REMOTE_BIN:/usr/bin:/bin" \
+  FAKE_TOOL_ROOT="$TOOL_ROOT" FAKE_SKILLS_LOG="$SKILLS_LOG" \
+  "$DEPLOY/install.sh" 2>&1); then
+  fail "a skills checkout with the wrong origin was accepted"
+fi
+[[ $output == *"has unexpected origin"* ]] || fail "wrong skills origin was not explained"
+
+NO_ACCESS_HOME=$TEMP_DIR/no-access-home
+mkdir -p "$NO_ACCESS_HOME"
+if output=$(HOME="$NO_ACCESS_HOME" PATH="$REMOTE_BIN:/usr/bin:/bin" \
+  FAKE_TOOL_ROOT="$TOOL_ROOT" FAKE_SKILLS_LOG="$SKILLS_LOG" \
+  FAKE_SKILLS_CLONE_FAIL=1 "$DEPLOY/install.sh" 2>&1); then
+  fail "a private skills clone failure was accepted"
+fi
+[[ $output == *"configure GitHub SSH access and rerun"* ]] ||
+  fail "private skills access failure was not explained"
+assert_absent "$NO_ACCESS_HOME/.local/share/edwin-skills"
+
+CONFLICT_HOME=$TEMP_DIR/conflict-home
+mkdir -p "$CONFLICT_HOME/.local/share"
+printf 'preserve me\n' >"$CONFLICT_HOME/.local/share/edwin-skills"
+if output=$(HOME="$CONFLICT_HOME" PATH="$REMOTE_BIN:/usr/bin:/bin" \
+  FAKE_TOOL_ROOT="$TOOL_ROOT" FAKE_SKILLS_LOG="$SKILLS_LOG" \
+  "$DEPLOY/install.sh" 2>&1); then
+  fail "a conflicting skills path was accepted"
+fi
+[[ $output == *"exists and is not a real directory"* ]] ||
+  fail "conflicting skills path was not explained"
+grep -Fx 'preserve me' "$CONFLICT_HOME/.local/share/edwin-skills" >/dev/null
 
 printf 'All checks passed.\n'
