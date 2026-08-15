@@ -20,7 +20,7 @@ usage() {
   cat <<'EOF'
 Usage: ./install.sh
 
-Installs editor tools and applies the portable dotfiles with chezmoi.
+Installs tools, Pi packages, and portable dotfiles.
 EOF
 }
 
@@ -159,7 +159,7 @@ log "Installing stable tools with mise"
 "$MISE" trust --yes "$SCRIPT_DIR/mise.toml"
 "$MISE" install --yes --cd "$SCRIPT_DIR"
 
-for binary_name in nvim rg fd fzf lazygit tree-sitter chezmoi hunk; do
+for binary_name in nvim rg fd fzf lazygit tree-sitter chezmoi hunk node pi; do
   target=$("$MISE" which --cd "$SCRIPT_DIR" "$binary_name")
   [ -x "$target" ] || die "mise did not provide an executable $binary_name"
   link=$LOCAL_BIN/$binary_name
@@ -209,8 +209,12 @@ log "Applying dotfiles with chezmoi"
 "$LOCAL_BIN/chezmoi" --source "$SCRIPT_DIR" apply
 [ ! -x "$LOCAL_BIN/herdr" ] || "$LOCAL_BIN/herdr" config check
 
+log "Installing Pi packages"
+"$MISE" exec --cd "$SCRIPT_DIR" -- pi install git:github.com/ocyedwin/pi-langfuse
+
 log "Restoring pinned LazyVim plugins"
 "$LOCAL_BIN/nvim" --headless "+Lazy! restore" +qa
 
 log "Installed $("$LOCAL_BIN/nvim" --version | sed -n '1p')"
+log "Installed Pi $("$LOCAL_BIN/pi" --version)"
 log "Dotfiles source: $SCRIPT_DIR"

@@ -1,8 +1,9 @@
 # Edwin Editor
 
-A small, portable editing setup for Ghostty, Herdr, Vim, Neovim, and
-VSCodeVim. The local checkout is the source of truth; `bootstrap.sh` can deploy
-that exact working tree to a long-lived machine over SSH.
+A small, portable editing and coding-agent setup for Ghostty, Herdr, Vim,
+Neovim, VSCodeVim, and Pi. The local checkout is the source of truth;
+`bootstrap.sh` can deploy that exact working tree to a long-lived machine over
+SSH.
 
 ## Local setup
 
@@ -12,8 +13,9 @@ that exact working tree to a long-lived machine over SSH.
 
 The first run:
 
-- installs stable editor tools, including chezmoi, with
-  [mise](https://mise.jdx.dev/), and
+- installs stable tools, including Node 24, Pi 0.84.2, and chezmoi, with
+  [mise](https://mise.jdx.dev/),
+- installs `git:github.com/ocyedwin/pi-langfuse` globally with Pi, and
 - applies the dotfiles in `home/` with chezmoi. This includes the Herdr user
   configuration; Ghostty is included only on macOS.
 
@@ -24,6 +26,26 @@ from the repository root:
 chezmoi --source "$PWD" diff
 chezmoi --source "$PWD" apply
 ```
+
+Chezmoi links both `~/.codex/AGENTS.md` and `~/.pi/agent/AGENTS.md` directly
+to `home/.chezmoitemplates/AGENTS.md` in this checkout. The shared file starts
+empty; edit it here, then start a new Codex session or run `/reload` in Pi.
+Rerun `chezmoi apply` if this checkout moves. Remote changes take effect after
+the next `bootstrap.sh` deployment.
+
+Each `install.sh` run reconciles `pi-langfuse` with its `main` branch. Between
+installs, update it from this checkout with `mise exec -- pi update
+--extensions`. Langfuse credentials stay outside this repository; tracing
+remains disabled until Pi inherits all three:
+
+```sh
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://langfuse.example.com
+```
+
+When enabled, the extension sends raw prompts, system prompts, messages,
+images, tool arguments and results, and context metadata without redaction.
 
 VSCodeVim should keep using the shared file:
 

@@ -7,6 +7,8 @@
 "aqua:tree-sitter/tree-sitter" = "latest"
 "aqua:twpayne/chezmoi" = "latest"
 hunk = "latest"
+node = "24"
+pi = "0.84.2"
 
 # fd's latest release has no macOS x86_64 asset, so build it there.
 rust = { version = "latest", profile = "minimal", os = ["macos/x64"] }

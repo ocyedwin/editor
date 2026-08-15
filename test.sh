@@ -106,6 +106,12 @@ if [[ -n $chezmoi ]]; then
   assert_file "$CHEZMOI_HOME/.config/hunk/config.toml"
   assert_file "$CHEZMOI_HOME/.config/herdr/config.toml"
   [[ -L $CHEZMOI_HOME/.vimrc ]] || fail "chezmoi did not create the Vimrc symlink"
+  [[ -L $CHEZMOI_HOME/.codex/AGENTS.md ]] || fail "chezmoi did not link Codex instructions"
+  [[ $(readlink "$CHEZMOI_HOME/.codex/AGENTS.md") == "$ROOT/home/.chezmoitemplates/AGENTS.md" ]] ||
+    fail "Codex instructions do not point to the shared source"
+  [[ -L $CHEZMOI_HOME/.pi/agent/AGENTS.md ]] || fail "chezmoi did not link Pi instructions"
+  [[ $(readlink "$CHEZMOI_HOME/.pi/agent/AGENTS.md") == "$ROOT/home/.chezmoitemplates/AGENTS.md" ]] ||
+    fail "Pi instructions do not point to the shared source"
 fi
 
 nvim=
@@ -181,7 +187,7 @@ for command_name in git curl cc make; do
   chmod +x "$REMOTE_BIN/$command_name"
 done
 
-for binary_name in rg fd fzf lazygit tree-sitter hunk; do
+for binary_name in rg fd fzf lazygit tree-sitter hunk node; do
   printf '#!/bin/sh\nexit 0\n' >"$TOOL_ROOT/$binary_name"
   chmod +x "$TOOL_ROOT/$binary_name"
 done
@@ -193,6 +199,20 @@ fi
 exit 0
 EOF
 chmod +x "$TOOL_ROOT/nvim"
+
+cat >"$TOOL_ROOT/pi" <<'EOF'
+#!/bin/sh
+set -eu
+case ${1:-} in
+  --version) printf '0.84.2\n' ;;
+  install)
+    [ "$#" -eq 2 ]
+    mkdir -p "$HOME/.pi/agent"
+    printf '%s\n' "$2" >"$HOME/.pi/agent/installed-package"
+    ;;
+esac
+EOF
+chmod +x "$TOOL_ROOT/pi"
 
 cat >"$TOOL_ROOT/chezmoi" <<'EOF'
 #!/bin/sh
@@ -207,12 +227,14 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$source_dir" ]
 rm -rf "$HOME/.config/nvim" "$HOME/.config/hunk" "$HOME/.config/herdr"
-mkdir -p "$HOME/.config"
+mkdir -p "$HOME/.config" "$HOME/.codex" "$HOME/.pi/agent"
 cp -R "$source_dir/home/dot_config/nvim" "$HOME/.config/nvim"
 cp -R "$source_dir/home/dot_config/hunk" "$HOME/.config/hunk"
 cp -R "$source_dir/home/dot_config/herdr" "$HOME/.config/herdr"
-rm -f "$HOME/.vimrc"
+rm -f "$HOME/.vimrc" "$HOME/.codex/AGENTS.md" "$HOME/.pi/agent/AGENTS.md"
 ln -s .config/nvim/vimrc "$HOME/.vimrc"
+ln -s "$source_dir/home/.chezmoitemplates/AGENTS.md" "$HOME/.codex/AGENTS.md"
+ln -s "$source_dir/home/.chezmoitemplates/AGENTS.md" "$HOME/.pi/agent/AGENTS.md"
 EOF
 chmod +x "$TOOL_ROOT/chezmoi"
 
@@ -229,6 +251,18 @@ cat >"$REMOTE_BIN/mise" <<'EOF'
 #!/bin/sh
 case "${1:-}" in
   trust|install) exit 0 ;;
+  exec)
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --cd) shift 2 ;;
+        --) shift; break ;;
+        *) shift ;;
+      esac
+    done
+    export PATH="$FAKE_TOOL_ROOT:$PATH"
+    exec "$@"
+    ;;
   which)
     last=
     for argument in "$@"; do
@@ -296,6 +330,7 @@ rm -f "$SOURCE/pending-file"
 PATH="$LOCAL_BIN:$PATH" "$SOURCE/bootstrap.sh" fake-host
 
 DEPLOY=$REMOTE_HOME/.local/share/edwin-editor
+DEPLOY_REAL=$(CDPATH='' cd -- "$DEPLOY" && pwd -P)
 assert_file "$DEPLOY/install.sh"
 [[ -x $DEPLOY/herdr ]] || fail "custom Herdr binary was not deployed"
 assert_file "$DEPLOY/untracked file"
@@ -309,12 +344,22 @@ grep -Fx 'version 1' "$DEPLOY/deployment-version" >/dev/null
 [[ -d $REMOTE_HOME/.config/nvim && ! -L $REMOTE_HOME/.config/nvim ]] ||
   fail "Neovim config was not applied"
 [[ -L $REMOTE_HOME/.vimrc ]] || fail "Vimrc was not linked"
+[[ -L $REMOTE_HOME/.codex/AGENTS.md ]] || fail "Codex instructions were not linked"
+[[ $(readlink "$REMOTE_HOME/.codex/AGENTS.md") == "$DEPLOY_REAL/home/.chezmoitemplates/AGENTS.md" ]] ||
+  fail "Codex instructions do not point to the deployed shared source"
+[[ -L $REMOTE_HOME/.pi/agent/AGENTS.md ]] || fail "Pi instructions were not linked"
+[[ $(readlink "$REMOTE_HOME/.pi/agent/AGENTS.md") == "$DEPLOY_REAL/home/.chezmoitemplates/AGENTS.md" ]] ||
+  fail "Pi instructions do not point to the deployed shared source"
 assert_file "$REMOTE_HOME/.config/hunk/config.toml"
 assert_file "$REMOTE_HOME/.config/herdr/config.toml"
 [[ -x $REMOTE_HOME/.local/bin/herdr ]] || fail "custom Herdr binary was not installed"
 [[ -L $REMOTE_HOME/.local/bin/nvim ]] || fail "Neovim binary was not linked"
 [[ -L $REMOTE_HOME/.local/bin/chezmoi ]] || fail "chezmoi binary was not linked"
 [[ -L $REMOTE_HOME/.local/bin/hunk ]] || fail "Hunk binary was not linked"
+[[ -L $REMOTE_HOME/.local/bin/node ]] || fail "Node binary was not linked"
+assert_absent "$REMOTE_HOME/.local/bin/npm"
+[[ -L $REMOTE_HOME/.local/bin/pi ]] || fail "Pi binary was not linked"
+grep -Fx 'git:github.com/ocyedwin/pi-langfuse' "$REMOTE_HOME/.pi/agent/installed-package" >/dev/null
 [[ $(sed -n '1p' "$SSH_LOG") == 'none fake-host' ]] || fail "target platform was not inspected"
 [[ $(sed -n '2p' "$SSH_LOG") == '-T fake-host' ]] || fail "archive SSH did not disable TTY"
 [[ $(sed -n '3p' "$SSH_LOG") == '-t fake-host' ]] || fail "installer SSH did not request TTY"
