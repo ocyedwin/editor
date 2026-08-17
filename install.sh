@@ -113,8 +113,39 @@ case ":${PATH:-}:" in
 esac
 
 install_skills() {
-  skills_remote=git@github.com:ocyedwin/skills.git
+  skills_standard_remote=git@github.com:ocyedwin/skills.git
+  skills_personal_remote=git@github-ocyedwin:ocyedwin/skills.git
   skills_dir=$HOME/.local/share/edwin-skills
+
+  skills_remote_allowed() {
+    case $1 in
+      "$skills_standard_remote"|"$skills_personal_remote") return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  skills_remote_accessible() {
+    git ls-remote "$1" HEAD >/dev/null 2>&1
+  }
+
+  select_skills_remote() {
+    preferred_remote=${1:-}
+    if [ -n "$preferred_remote" ] &&
+      skills_remote_allowed "$preferred_remote" &&
+      skills_remote_accessible "$preferred_remote"; then
+      printf '%s' "$preferred_remote"
+      return 0
+    fi
+
+    for candidate_remote in "$skills_standard_remote" "$skills_personal_remote"; do
+      [ "$candidate_remote" != "$preferred_remote" ] || continue
+      if skills_remote_accessible "$candidate_remote"; then
+        printf '%s' "$candidate_remote"
+        return 0
+      fi
+    done
+    return 1
+  }
 
   if [ -e "$skills_dir" ] || [ -L "$skills_dir" ]; then
     [ -d "$skills_dir" ] && [ ! -L "$skills_dir" ] ||
@@ -126,9 +157,17 @@ install_skills() {
       die "$skills_dir is not the skills checkout root"
     actual_remote=$(git -C "$skills_dir" remote get-url origin 2>/dev/null) ||
       die "$skills_dir has no origin remote"
-    [ "$actual_remote" = "$skills_remote" ] ||
+    skills_remote_allowed "$actual_remote" ||
       die "$skills_dir has unexpected origin: $actual_remote"
+    skills_remote=$(select_skills_remote "$actual_remote") ||
+      die "cannot read the personal skills repository; configure GitHub SSH access and rerun"
+    if [ "$skills_remote" != "$actual_remote" ]; then
+      log "Switching personal skills origin to accessible SSH host $skills_remote"
+      git -C "$skills_dir" remote set-url origin "$skills_remote"
+    fi
   else
+    skills_remote=$(select_skills_remote) ||
+      die "cannot read the personal skills repository; configure GitHub SSH access and rerun"
     mkdir -p "$HOME/.local/share"
     skills_temporary=$(mktemp -d "$HOME/.local/share/.edwin-skills.XXXXXX")
     trap 'rm -rf "$skills_temporary"' 0 1 2 15

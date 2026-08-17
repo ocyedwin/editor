@@ -52,6 +52,10 @@ machine. Verify it before installing:
 git ls-remote git@github.com:ocyedwin/skills.git HEAD
 ```
 
+If the standard GitHub host uses a work identity, the installer also supports
+`git@github-ocyedwin:ocyedwin/skills.git`. It selects an accessible allowed
+URL and updates an existing skills checkout between those two URLs when needed.
+
 The first successful sync installs a five-minute LaunchAgent on macOS or
 systemd user timer on Linux. Validated fast-forward commits to `skills/main`
 are therefore production deployments. Codex normally detects changes
@@ -92,7 +96,7 @@ Neovim.
 
 Deploy the current local checkout's tracked files, including working-tree
 modifications and staged additions, plus the matching custom Herdr binary from
-`../2026-08-12-herdrdev-herdr/target`:
+the newest sibling checkout matching `../????-??-??-ocyedwin-herdr/target`:
 
 ```sh
 ./bootstrap.sh workbox

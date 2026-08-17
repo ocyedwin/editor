@@ -32,8 +32,16 @@ printf 'Deploying %s (%s) to %s\n' "$commit" "$state" "$TARGET"
 
 remote_platform=$(ssh "$TARGET" 'printf "%s/%s\n" "$(uname -s)" "$(uname -m)"')
 local_platform=$(printf '%s/%s\n' "$(uname -s)" "$(uname -m)")
-HERDR_ROOT=${HERDR_ROOT:-$ROOT/../2026-08-12-herdrdev-herdr}
 if [[ -z ${HERDR_BINARY:-} ]]; then
+  if [[ -z ${HERDR_ROOT:-} ]]; then
+    herdr_roots=("$ROOT"/../????-??-??-ocyedwin-herdr)
+    if [[ ! -d ${herdr_roots[0]} ]]; then
+      printf 'error: no sibling Herdr checkout matching %s\n' \
+        "$ROOT/../????-??-??-ocyedwin-herdr" >&2
+      exit 1
+    fi
+    HERDR_ROOT=${herdr_roots[${#herdr_roots[@]}-1]}
+  fi
   case $remote_platform in
     Darwin/arm64)
       candidates=("$HERDR_ROOT/target/aarch64-apple-darwin/release/herdr")

@@ -219,6 +219,11 @@ git -C "$SKILLS_SOURCE" commit -qm fixture
 git clone -q --bare "$SKILLS_SOURCE" "$SKILLS_REMOTE"
 cat >"$REMOTE_BIN/skills-ssh" <<'EOF'
 #!/bin/sh
+if [ "${FAKE_SKILLS_FAIL_PLAIN:-0}" = 1 ]; then
+  for ssh_argument do
+    [ "$ssh_argument" != git@github.com ] || exit 1
+  done
+fi
 exec git-upload-pack "$FAKE_SKILLS_REMOTE"
 EOF
 chmod +x "$REMOTE_BIN/skills-ssh"
@@ -477,6 +482,15 @@ if output=$(HOME="$REMOTE_HOME" PATH="$REMOTE_BIN:/usr/bin:/bin" \
   fail "a skills checkout with the wrong origin was accepted"
 fi
 [[ $output == *"has unexpected origin"* ]] || fail "wrong skills origin was not explained"
+
+ALIAS_HOME=$TEMP_DIR/alias-home
+mkdir -p "$ALIAS_HOME"
+HOME="$ALIAS_HOME" PATH="$REMOTE_BIN:/usr/bin:/bin" \
+  FAKE_TOOL_ROOT="$TOOL_ROOT" FAKE_SKILLS_LOG="$SKILLS_LOG" \
+  FAKE_SKILLS_FAIL_PLAIN=1 "$DEPLOY/install.sh"
+[[ $(git -C "$ALIAS_HOME/.local/share/edwin-skills" remote get-url origin) == \
+  git@github-ocyedwin:ocyedwin/skills.git ]] ||
+  fail "the accessible personal GitHub alias was not selected"
 
 NO_ACCESS_HOME=$TEMP_DIR/no-access-home
 mkdir -p "$NO_ACCESS_HOME"
